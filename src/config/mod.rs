@@ -117,6 +117,7 @@ impl Default for Telegram {
 pub struct Channels {
     pub telegram: Telegram,
     pub whatsapp: WhatsApp,
+    pub qq: QQ,
 }
 
 impl Default for Channels {
@@ -124,6 +125,7 @@ impl Default for Channels {
         Self {
             telegram: Telegram::default(),
             whatsapp: WhatsApp::default(),
+            qq: QQ::default(),
         }
     }
 }
@@ -143,6 +145,32 @@ impl Default for WhatsApp {
             bridge_url: "ws://localhost:3001".to_string(),
             phone_number: None,
             allowed_numbers: Vec::new(),
+        }
+    }
+}
+
+/// QQ channel configuration (via OneBot protocol)
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QQ {
+    pub enabled: bool,
+    /// OneBot HTTP API URL (e.g., http://localhost:3000)
+    pub api_url: String,
+    /// OneBot WebSocket event URL (e.g., ws://localhost:3000)
+    pub event_url: String,
+    /// OneBot access token
+    pub access_token: String,
+    /// Allowed QQ user IDs
+    pub allowed_users: Vec<String>,
+}
+
+impl Default for QQ {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_url: "http://localhost:3000".to_string(),
+            event_url: "ws://localhost:3000".to_string(),
+            access_token: String::new(),
+            allowed_users: Vec::new(),
         }
     }
 }

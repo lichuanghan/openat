@@ -187,6 +187,16 @@ pub fn channel_status() -> Result<()> {
     });
     println!("  Bridge: {}", config.channels.whatsapp.bridge_url);
 
+    println!("QQ: {}", if config.channels.qq.enabled {
+        "[+] Enabled"
+    } else {
+        "[-] Disabled"
+    });
+    println!("  Event URL: {}", config.channels.qq.event_url);
+    if !config.channels.qq.access_token.is_empty() {
+        println!("  Access Token: [+] Set");
+    }
+
     Ok(())
 }
 
@@ -200,6 +210,12 @@ pub async fn channel_login(channel: Option<&str>) -> Result<()> {
         }
         "whatsapp" => {
             println!("WhatsApp login: Scan the QR code from WA Bridge");
+        }
+        "qq" => {
+            println!("QQ login via OneBot:");
+            println!("1. Install go-cqhttp or another OneBot v11 implementation");
+            println!("2. Configure it to connect to WebSocket: ws://localhost:3000");
+            println!("3. Set the event_url in ~/.nanobot/config.json");
         }
         _ => {
             println!("Unknown channel: {}", channel);

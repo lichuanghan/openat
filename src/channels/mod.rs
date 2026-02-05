@@ -1,5 +1,6 @@
 pub mod telegram;
 pub mod whatsapp;
+pub mod qq;
 
 use crate::bus::MessageBus;
 use crate::config::Config;
