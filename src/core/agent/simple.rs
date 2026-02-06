@@ -1,33 +1,28 @@
-use crate::providers::LLMProvider;
+//! Simple CLI Agent - standalone agent for interactive use.
+//!
+//! This module provides a simple `SimpleAgent` that can be used directly
+//! from CLI without requiring the MessageBus infrastructure.
+//!
+//! For full-featured agent with message bus integration, use `AgentExecutor`.
+
+use crate::llm::LLMProvider;
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use tokio::fs;
+use tracing::{debug, info};
 
-pub mod tools;
-
-pub struct Agent {
+/// Simple agent for CLI usage - no message bus required
+pub struct SimpleAgent {
     provider: Box<dyn LLMProvider>,
     model: String,
     workspace: PathBuf,
 }
 
-#[derive(Debug)]
-pub struct LLMResponse {
-    pub content: Option<String>,
-    pub tool_calls: Vec<ToolCall>,
-    pub finish_reason: String,
-}
-
-#[derive(Debug)]
-pub struct ToolCall {
-    pub id: String,
-    pub name: String,
-    pub arguments: Value,
-}
-
-impl Agent {
+impl SimpleAgent {
+    /// Create a new simple agent
     pub fn new(provider: Box<dyn LLMProvider>, model: String, workspace: PathBuf) -> Self {
+        debug!("Creating SimpleAgent with model: {}", model);
         Self {
             provider,
             model,
@@ -35,7 +30,10 @@ impl Agent {
         }
     }
 
+    /// Chat with the agent
     pub async fn chat(&self, message: &str) -> String {
+        info!("Processing message: {}...", message.chars().take(50).collect::<String>());
+
         let mut messages = vec![
             json!({
                 "role": "system",
@@ -59,6 +57,7 @@ impl Agent {
             match self.provider.chat(&messages, &self.model, &tools).await {
                 Ok(response) => {
                     if response.tool_calls.is_empty() {
+                        debug!("No tool calls, returning direct response");
                         return response.content.unwrap_or_else(|| "No response".to_string());
                     }
 
@@ -89,7 +88,10 @@ impl Agent {
                             HashMap::new()
                         };
 
+                        debug!("Executing tool: {}", tool_call.name);
                         let result = execute_tool(&tool_call.name, &args, &self.workspace).await;
+                        debug!("Tool result: {} bytes", result.len());
+
                         messages.push(json!({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -98,17 +100,21 @@ impl Agent {
                         }));
                     }
                 }
-                Err(e) => return format!("Error: {}", e),
+                Err(e) => {
+                    tracing::error!("LLM error: {}", e);
+                    return format!("Error: {}", e);
+                }
             }
         }
 
+        tracing::warn!("Max iterations reached");
         "I've completed processing but reached the maximum iteration limit.".to_string()
     }
 
     fn system_prompt(&self) -> String {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
         format!(
-            r#"You are nanobot, a helpful AI assistant.
+            r#"You are openat, a helpful AI assistant.
 
 Current time: {}
 
@@ -120,6 +126,8 @@ You have access to tools that you can use:
 - write_file: Write file to disk
 - list_dir: List directory contents
 - exec: Execute shell commands
+- web_search: Search the web for information
+- web_fetch: Fetch and extract text from a URL
 
 ## Guidelines
 - Use tools when needed to accomplish tasks
@@ -131,8 +139,7 @@ You have access to tools that you can use:
     }
 }
 
-// ============== Tool Functions ==============
-
+/// Get tool definitions for the LLM
 pub fn get_tool_definitions() -> Vec<Value> {
     vec![
         json!({
@@ -244,6 +251,7 @@ pub fn get_tool_definitions() -> Vec<Value> {
     ]
 }
 
+/// Execute a tool
 pub async fn execute_tool(name: &str, args: &HashMap<String, Value>, workspace: &PathBuf) -> String {
     match name {
         "read_file" => {
@@ -314,7 +322,6 @@ pub async fn execute_tool(name: &str, args: &HashMap<String, Value>, workspace: 
         }
         "web_search" => {
             if let Some(query) = args.get("query").and_then(|v| v.as_str()) {
-                // Note: This would need config to be passed
                 "Web search executed. (requires config)".to_string()
             } else {
                 "Error: query parameter required".to_string()

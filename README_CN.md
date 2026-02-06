@@ -1,4 +1,4 @@
-# nanobot
+# openat
 
 Rust 实现的超轻量级个人 AI 助手
 

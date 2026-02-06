@@ -2,8 +2,9 @@ pub mod telegram;
 pub mod whatsapp;
 pub mod qq;
 
-use crate::bus::MessageBus;
+use crate::core::bus::MessageBus;
 use crate::config::Config;
+use crate::types::OutboundMessage;
 use anyhow::Result;
 use std::collections::HashMap;
 use tokio::sync::broadcast;
@@ -16,24 +17,6 @@ pub trait Channel: Send + Sync {
     async fn start(&mut self, bus: &MessageBus) -> Result<()>;
     async fn stop(&mut self) -> Result<()>;
     fn is_enabled(&self) -> bool;
-}
-
-/// Outbound message from agent
-#[derive(Debug, Clone)]
-pub struct OutboundMessage {
-    pub channel: String,
-    pub chat_id: String,
-    pub content: String,
-}
-
-impl OutboundMessage {
-    pub fn new(channel: &str, chat_id: &str, content: &str) -> Self {
-        Self {
-            channel: channel.to_string(),
-            chat_id: chat_id.to_string(),
-            content: content.to_string(),
-        }
-    }
 }
 
 /// Channel manager that coordinates all channels

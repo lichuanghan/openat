@@ -1,5 +1,6 @@
-use crate::bus::{InboundMessage, MessageBus};
+use crate::core::bus::MessageBus;
 use crate::config::Config;
+use crate::types::InboundMessage;
 use futures_util::stream::StreamExt;
 use futures_util::SinkExt;
 use serde::{Deserialize, Serialize};

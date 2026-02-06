@@ -1,3 +1,12 @@
+//! Session module - manages conversation sessions with JSONL persistence.
+//!
+//! # Features
+//!
+//! - Session creation and management
+//! - Message history with automatic trimming
+//! - JSONL file format for persistence
+//! - Thread-safe operations
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -8,21 +17,31 @@ use std::path::PathBuf;
 /// A conversation session
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Session {
+    /// Unique session key (usually channel:chat_id)
     pub key: String,
+    /// Message history
     pub messages: Vec<SessionMessage>,
+    /// When the session was created
     pub created_at: DateTime<Utc>,
+    /// When the session was last updated
     pub updated_at: DateTime<Utc>,
+    /// Optional metadata
     pub metadata: HashMap<String, String>,
 }
 
+/// A single message in a session
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SessionMessage {
+    /// Message role (user, assistant, system, tool)
     pub role: String,
+    /// Message content
     pub content: String,
+    /// When the message was sent
     pub timestamp: DateTime<Utc>,
 }
 
 impl Session {
+    /// Create a new session
     pub fn new(key: String) -> Self {
         let now = Utc::now();
         Self {
@@ -34,6 +53,7 @@ impl Session {
         }
     }
 
+    /// Add a message to the session
     pub fn add_message(&mut self, role: &str, content: &str) {
         self.messages.push(SessionMessage {
             role: role.to_string(),
@@ -43,6 +63,7 @@ impl Session {
         self.updated_at = Utc::now();
     }
 
+    /// Get message history (optionally limited)
     pub fn get_history(&self, max_messages: usize) -> Vec<HashMap<String, String>> {
         let recent = if self.messages.len() > max_messages {
             &self.messages[self.messages.len() - max_messages..]
@@ -61,19 +82,26 @@ impl Session {
             .collect()
     }
 
+    /// Clear all messages
     pub fn clear(&mut self) {
         self.messages.clear();
         self.updated_at = Utc::now();
     }
+
+    /// Get number of messages
+    pub fn message_count(&self) -> usize {
+        self.messages.len()
+    }
 }
 
-/// Session manager
+/// Session manager - handles persistence
 #[derive(Debug)]
 pub struct SessionManager {
     sessions_dir: PathBuf,
 }
 
 impl SessionManager {
+    /// Create a new session manager
     pub fn new(sessions_dir: PathBuf) -> Self {
         if let Err(e) = fs::create_dir_all(&sessions_dir) {
             tracing::warn!("Failed to create sessions directory: {}", e);
@@ -82,6 +110,7 @@ impl SessionManager {
         Self { sessions_dir }
     }
 
+    /// Get sessions directory
     pub fn sessions_dir(&self) -> &PathBuf {
         &self.sessions_dir
     }
@@ -209,4 +238,92 @@ pub fn safe_filename(name: &str) -> String {
             }
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_session_new() {
+        let session = Session::new("test_key".to_string());
+        assert_eq!(session.key, "test_key");
+        assert!(session.messages.is_empty());
+        assert!(session.metadata.is_empty());
+    }
+
+    #[test]
+    fn test_session_add_message() {
+        let mut session = Session::new("test_key".to_string());
+        session.add_message("user", "Hello");
+        assert_eq!(session.messages.len(), 1);
+        assert_eq!(session.messages[0].role, "user");
+        assert_eq!(session.messages[0].content, "Hello");
+    }
+
+    #[test]
+    fn test_session_add_multiple_messages() {
+        let mut session = Session::new("test_key".to_string());
+        session.add_message("user", "Hello");
+        session.add_message("assistant", "Hi there!");
+        session.add_message("user", "How are you?");
+
+        assert_eq!(session.messages.len(), 3);
+        assert_eq!(session.message_count(), 3);
+    }
+
+    #[test]
+    fn test_session_get_history_all() {
+        let mut session = Session::new("test_key".to_string());
+        session.add_message("user", "Hello 1");
+        session.add_message("user", "Hello 2");
+        session.add_message("user", "Hello 3");
+
+        let history = session.get_history(10);
+        assert_eq!(history.len(), 3);
+    }
+
+    #[test]
+    fn test_session_get_history_limited() {
+        let mut session = Session::new("test_key".to_string());
+        session.add_message("user", "Hello 1");
+        session.add_message("user", "Hello 2");
+        session.add_message("user", "Hello 3");
+
+        // Get only last 2 messages
+        let history = session.get_history(2);
+        assert_eq!(history.len(), 2);
+        assert_eq!(history[0]["content"], "Hello 2");
+        assert_eq!(history[1]["content"], "Hello 3");
+    }
+
+    #[test]
+    fn test_session_clear() {
+        let mut session = Session::new("test_key".to_string());
+        session.add_message("user", "Hello");
+        assert_eq!(session.message_count(), 1);
+
+        session.clear();
+        assert_eq!(session.message_count(), 0);
+    }
+
+    #[test]
+    fn test_safe_filename_basic() {
+        assert_eq!(safe_filename("hello_world"), "hello_world");
+        assert_eq!(safe_filename("file.txt"), "file.txt");
+    }
+
+    #[test]
+    fn test_safe_filename_special_chars() {
+        assert_eq!(safe_filename("hello:world"), "hello_world");
+        assert_eq!(safe_filename("test/path"), "test_path");
+        assert_eq!(safe_filename("file name"), "file_name");
+        assert_eq!(safe_filename("data@v1.json"), "data_v1.json");
+    }
+
+    #[test]
+    fn test_safe_filename_preserves_alphanumeric() {
+        assert_eq!(safe_filename("abc123-xyz_789"), "abc123-xyz_789");
+        assert_eq!(safe_filename("v1.2.3"), "v1.2.3");
+    }
 }

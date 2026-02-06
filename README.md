@@ -1,4 +1,4 @@
-# nanobot
+# openat
 
 Ultra-Lightweight Personal AI Assistant in Rust
 

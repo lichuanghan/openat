@@ -1,10 +1,25 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
+use tracing_subscriber::layer::SubscriberExt;
 
 const VERSION: &str = "0.1.0";
 
+/// Initialize tracing with environment-based filtering
+fn init_logging() {
+    // Try to get RUST_LOG from environment, default to info
+    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("openat=info"));
+
+    let subscriber = tracing_subscriber::registry()
+        .with(tracing_subscriber::fmt::layer())
+        .with(env_filter);
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set tracing subscriber");
+}
+
 #[derive(Parser, Debug)]
-#[command(name = "nanobot")]
+#[command(name = "openat")]
 #[command(version = VERSION)]
 struct Args {
     #[command(subcommand)]
@@ -45,7 +60,8 @@ enum Commands {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    tracing_subscriber::fmt::init();
+    init_logging();
+    tracing::info!(version = VERSION, "Starting openat");
     let args = Args::parse();
 
     match args.command {
@@ -55,7 +71,7 @@ async fn main() -> Result<()> {
             if let Some(msg) = message {
                 cli::agent(&msg).await?
             } else {
-                cli::interactive_agent().await?
+                cli::agent_interactive().await?
             }
         }
         Commands::ChannelStatus => cli::channel_status()?,
@@ -72,12 +88,11 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-mod agent;
-mod bus;
 mod channels;
 mod cli;
 mod config;
-mod cron;
+mod core;
 mod heartbeat;
-mod providers;
-mod session;
+mod llm;
+mod tools;
+mod types;

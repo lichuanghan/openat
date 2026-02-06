@@ -1,5 +1,6 @@
-use crate::bus::{InboundMessage, MessageBus};
+use crate::core::bus::MessageBus;
 use crate::config::Config;
+use crate::types::InboundMessage;
 use teloxide::Bot;
 use teloxide::payloads::GetUpdatesSetters;
 use teloxide::prelude::{Request, Requester};

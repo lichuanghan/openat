@@ -1,3 +1,8 @@
+//! Memory system - persistent long-term and short-term memory for the agent.
+//!
+//! - LongTermMemory: Persistent across sessions (MEMORY.md)
+//! - DailyNotes: Session-specific, dated notes
+
 use chrono::{DateTime, Utc};
 use std::fs;
 use std::path::PathBuf;
@@ -100,8 +105,8 @@ impl DailyNotes {
                 let path = self.memory_dir.join(format!("{}.md", date.format("%Y-%m-%d")));
                 if path.exists() {
                     if let Ok(content) = fs::read_to_string(&path) {
-                        let dt = date.and_hms_opt(0, 0, 0).unwrap_or_else(|| Utc::now())
-                            .fixed_offset();
+                        let naive = date.and_hms_opt(0, 0, 0).unwrap_or_else(|| chrono::NaiveDateTime::MIN);
+                        let dt = DateTime::from_naive_utc_and_offset(naive, chrono::offset::Utc);
                         notes.push((dt, content));
                     }
                 }

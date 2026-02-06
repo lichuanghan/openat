@@ -1,13 +1,36 @@
+//! Scheduler module - handles cron-like scheduled tasks.
+//!
+//! This module provides two levels of scheduling:
+//! - `Scheduler`: Full-featured scheduler that publishes jobs to the MessageBus
+//! - `JobManager` / `CronJob`: Simple CLI-friendly job management
+//!
+//! # Examples
+//!
+//! ```ignore
+//! use crate::core::scheduler::{Scheduler, JobManager, ScheduledJob};
+//!
+//! // CLI usage
+//! let manager = JobManager::new();
+//! let jobs = manager.load_jobs();
+//!
+//! // Gateway usage
+//! let scheduler = Scheduler::new(&bus);
+//! tokio::spawn(scheduler.run());
+//! ```
+
+use crate::config;
+use crate::core::bus::MessageBus;
+use crate::types::InboundMessage;
 use chrono::{DateTime, Datelike, Timelike, Utc};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
 use tokio::time::{interval, Duration};
-use tracing::info;
+use tracing::{debug, info, warn};
 
-/// Cron job definition
+/// Scheduled job definition - the core job type
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CronJob {
+pub struct ScheduledJob {
     pub id: String,
     pub name: String,
     pub message: String,
@@ -22,7 +45,11 @@ pub struct CronJob {
     pub next_run: Option<DateTime<Utc>>,
 }
 
-impl CronJob {
+/// Alias for ScheduledJob (CLI compatibility)
+pub type CronJob = ScheduledJob;
+
+impl ScheduledJob {
+    /// Create a new scheduled job
     pub fn new(name: String, message: String) -> Self {
         let now = Utc::now();
         Self {
@@ -41,7 +68,7 @@ impl CronJob {
         }
     }
 
-    /// Calculate next run time
+    /// Calculate next run time based on interval or cron expression
     pub fn calculate_next_run(&mut self) {
         let now = Utc::now();
 
@@ -53,6 +80,7 @@ impl CronJob {
             if let Ok(next) = parse_cron(cron, now) {
                 self.next_run = Some(next);
             } else {
+                warn!("Failed to parse cron expression for job: {}", self.name);
                 self.next_run = None;
             }
         } else {
@@ -60,7 +88,7 @@ impl CronJob {
         }
     }
 
-    /// Check if job is due
+    /// Check if job is due to run
     pub fn is_due(&self) -> bool {
         if !self.enabled {
             return false;
@@ -72,18 +100,19 @@ impl CronJob {
         }
     }
 
-    /// Mark job as run
+    /// Mark job as having been run
     pub fn mark_run(&mut self) {
         self.last_run = Some(Utc::now());
         self.calculate_next_run();
+        debug!("Job '{}' marked as run, next run: {:?}", self.name, self.next_run);
     }
 }
 
-/// Simple cron parser
+/// Simple cron expression parser
 fn parse_cron(expr: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
     let parts: Vec<&str> = expr.split_whitespace().collect();
     if parts.len() != 5 {
-        return Err("Invalid cron expression".to_string());
+        return Err("Invalid cron expression: expected 5 fields".to_string());
     }
 
     let min = parts[0].parse::<u32>().map_err(|_| "Invalid minute")?;
@@ -119,60 +148,82 @@ fn parse_cron(expr: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
     Err("Could not calculate next run".to_string())
 }
 
-/// Cron job manager
+/// Job manager - loads and persists scheduled jobs
 #[derive(Debug)]
-pub struct CronManager {
+pub struct JobManager {
     jobs_dir: PathBuf,
 }
 
-impl CronManager {
-    pub fn new(jobs_dir: PathBuf) -> Self {
+/// Alias for JobManager (CLI compatibility)
+pub type CronManager = JobManager;
+
+impl JobManager {
+    /// Create a new job manager
+    pub fn new() -> Self {
+        let jobs_dir = config::workspace_path().join("cron");
         if let Err(e) = fs::create_dir_all(&jobs_dir) {
-            tracing::warn!("Failed to create jobs directory: {}", e);
+            warn!("Failed to create jobs directory: {}", e);
+        }
+        debug!("Job manager initialized with jobs directory: {:?}", jobs_dir);
+        Self { jobs_dir }
+    }
+
+    /// Create a job manager with custom directory
+    pub fn with_dir(jobs_dir: PathBuf) -> Self {
+        if let Err(e) = fs::create_dir_all(&jobs_dir) {
+            warn!("Failed to create jobs directory: {}", e);
         }
         Self { jobs_dir }
     }
 
-    /// Load all jobs
-    pub fn load_jobs(&self) -> Vec<CronJob> {
+    /// Load all jobs from disk
+    pub fn load_jobs(&self) -> Vec<ScheduledJob> {
         let mut jobs = Vec::new();
 
         if let Ok(entries) = fs::read_dir(&self.jobs_dir) {
             for entry in entries.flatten() {
                 if entry.path().extension().map(|e| e == "json").unwrap_or(false) {
                     if let Ok(content) = fs::read_to_string(entry.path()) {
-                        if let Ok(job) = serde_json::from_str(&content) {
-                            jobs.push(job);
+                        match serde_json::from_str(&content) {
+                            Ok(job) => jobs.push(job),
+                            Err(e) => warn!("Failed to parse job file: {}", e),
                         }
                     }
                 }
             }
         }
 
+        debug!("Loaded {} jobs from disk", jobs.len());
         jobs
     }
 
-    /// Save a job
-    pub fn save_job(&self, job: &CronJob) {
+    /// Save a job to disk
+    pub fn save_job(&self, job: &ScheduledJob) {
         let path = self.jobs_dir.join(format!("{}.json", job.id));
         if let Ok(content) = serde_json::to_string_pretty(job) {
-            let _ = fs::write(path, content);
+            if let Err(e) = fs::write(path, &content) {
+                warn!("Failed to save job '{}': {}", job.name, e);
+            }
         }
     }
 
-    /// Delete a job
+    /// Delete a job from disk
     pub fn delete_job(&self, id: &str) -> bool {
         let path = self.jobs_dir.join(format!("{}.json", id));
         if path.exists() {
-            return fs::remove_file(path).is_ok();
+            if let Ok(()) = fs::remove_file(path) {
+                info!("Deleted job: {}", id);
+                return true;
+            }
         }
         false
     }
 
-    /// Add a job
-    pub fn add_job(&mut self, job: &mut CronJob) {
+    /// Add a new job
+    pub fn add_job(&mut self, job: &mut ScheduledJob) {
         job.calculate_next_run();
         self.save_job(job);
+        info!("Added job '{}' with next run: {:?}", job.name, job.next_run);
     }
 
     /// Toggle job enabled state
@@ -184,27 +235,44 @@ impl CronManager {
                 job.enabled = enabled;
                 job.calculate_next_run();
                 self.save_job(&job);
+                info!("{} job: {}", if enabled { "Enabled" } else { "Disabled" }, job.name);
                 return true;
             }
         }
         false
     }
+
+    /// Get jobs directory
+    pub fn jobs_dir(&self) -> &PathBuf {
+        &self.jobs_dir
+    }
 }
 
-/// Cron executor that runs scheduled jobs
+impl Default for JobManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Scheduler - runs scheduled jobs and publishes messages to the bus
 #[derive(Debug)]
-pub struct CronExecutor {
-    manager: CronManager,
+pub struct Scheduler {
+    manager: JobManager,
+    bus: MessageBus,
 }
 
-impl CronExecutor {
-    pub fn new(manager: CronManager) -> Self {
-        Self { manager }
+impl Scheduler {
+    /// Create a new scheduler
+    pub fn new(bus: &MessageBus) -> Self {
+        Self {
+            manager: JobManager::new(),
+            bus: bus.clone(),
+        }
     }
 
-    /// Run the cron executor
-    pub async fn run(&mut self) {
-        info!("Cron executor started");
+    /// Run the scheduler loop
+    pub async fn run(&self) {
+        info!("Scheduler started");
 
         let mut check_interval = interval(Duration::from_secs(30));
 
@@ -215,12 +283,11 @@ impl CronExecutor {
 
             for job in jobs.iter_mut() {
                 if job.is_due() {
-                    info!("Executing cron job: {}", job.name);
+                    info!("Executing scheduled job: {}", job.name);
+                    debug!("Job details: id={}, message={}", job.id, job.message);
 
-                    // Execute the job
-                    let result = self.execute_job(job).await;
-
-                    info!("Job '{}' result: {}", job.name, result);
+                    // Execute the job - publish message to bus
+                    self.execute_job(job).await;
 
                     job.mark_run();
                     self.manager.save_job(job);
@@ -229,13 +296,16 @@ impl CronExecutor {
         }
     }
 
-    /// Execute a cron job
-    async fn execute_job(&self, job: &CronJob) -> String {
-        // TODO: Integrate with agent to process the message
-        format!(
-            "Cron job '{}' executed with message: {}",
-            job.name,
-            job.message
-        )
+    /// Execute a job - publish message to the bus
+    async fn execute_job(&self, job: &ScheduledJob) {
+        let channel = job.deliver_channel.clone().unwrap_or_else(|| "scheduler".to_string());
+        let chat_id = job.deliver_to.clone().unwrap_or_else(|| "default".to_string());
+
+        let message = InboundMessage::new(&channel, "scheduler", &chat_id, &job.message);
+
+        self.bus.publish_inbound(message).await;
+
+        info!("Published scheduled message from job '{}' to {}:{}",
+              job.name, channel, chat_id);
     }
 }

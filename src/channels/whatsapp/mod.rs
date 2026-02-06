@@ -1,5 +1,6 @@
-use crate::bus::{InboundMessage, MessageBus};
+use crate::core::bus::MessageBus;
 use crate::config::Config;
+use crate::types::InboundMessage;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use tokio::net::TcpStream;

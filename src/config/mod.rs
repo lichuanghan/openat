@@ -231,6 +231,99 @@ impl Config {
             None
         }
     }
+
+    /// Validate the configuration
+    ///
+    /// Returns a list of validation errors, if any.
+    pub fn validate(&self) -> Vec<String> {
+        let mut errors = Vec::new();
+
+        // Validate agent defaults
+        if self.agents.defaults.model.is_empty() {
+            errors.push("Agent model cannot be empty".to_string());
+        }
+        if self.agents.defaults.max_tokens == 0 {
+            errors.push("Agent max_tokens must be greater than 0".to_string());
+        }
+        if self.agents.defaults.temperature < 0.0 || self.agents.defaults.temperature > 2.0 {
+            errors.push("Agent temperature must be between 0.0 and 2.0".to_string());
+        }
+
+        // Validate provider configurations
+        if !self.providers.openrouter.api_key.is_empty() {
+            if self.providers.openrouter.api_key.len() < 10 {
+                errors.push("OpenRouter API key seems too short".to_string());
+            }
+        }
+        if !self.providers.anthropic.api_key.is_empty() {
+            if self.providers.anthropic.api_key.len() < 10 {
+                errors.push("Anthropic API key seems too short".to_string());
+            }
+        }
+        if !self.providers.openai.api_key.is_empty() {
+            if self.providers.openai.api_key.len() < 10 {
+                errors.push("OpenAI API key seems too short".to_string());
+            }
+        }
+        if !self.providers.groq.api_key.is_empty() {
+            if self.providers.groq.api_key.len() < 10 {
+                errors.push("Groq API key seems too short".to_string());
+            }
+        }
+
+        // Validate Telegram config
+        if self.channels.telegram.enabled {
+            if self.channels.telegram.token.is_empty() {
+                errors.push("Telegram token cannot be empty when enabled".to_string());
+            }
+            if self.channels.telegram.token.len() < 10 {
+                errors.push("Telegram token seems too short".to_string());
+            }
+        }
+
+        // Validate WhatsApp config
+        if self.channels.whatsapp.enabled {
+            if self.channels.whatsapp.bridge_url.is_empty() {
+                errors.push("WhatsApp bridge URL cannot be empty when enabled".to_string());
+            }
+        }
+
+        // Validate QQ config
+        if self.channels.qq.enabled {
+            if self.channels.qq.api_url.is_empty() {
+                errors.push("QQ API URL cannot be empty when enabled".to_string());
+            }
+            if self.channels.qq.event_url.is_empty() {
+                errors.push("QQ event URL cannot be empty when enabled".to_string());
+            }
+        }
+
+        // Validate web search
+        if !self.tools.web_search.api_key.is_empty() {
+            if self.tools.web_search.api_key.len() < 10 {
+                errors.push("Web search API key seems too short".to_string());
+            }
+        }
+
+        errors
+    }
+
+    /// Check if any LLM provider is configured
+    pub fn has_llm_provider(&self) -> bool {
+        self.get_api_key().is_some()
+    }
+
+    /// Check if any channel is enabled
+    pub fn has_enabled_channel(&self) -> bool {
+        self.channels.telegram.enabled
+            || self.channels.whatsapp.enabled
+            || self.channels.qq.enabled
+    }
+
+    /// Check if web search is configured
+    pub fn has_web_search(&self) -> bool {
+        !self.tools.web_search.api_key.is_empty()
+    }
 }
 
 impl Default for Config {
@@ -262,4 +355,120 @@ pub fn ensure_workspace_exists() -> PathBuf {
     let path = workspace_path();
     let _ = fs::create_dir_all(&path);
     path
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_config_default() {
+        let config = Config::default();
+        assert!(config.providers.openrouter.api_key.is_empty());
+        assert_eq!(config.agents.defaults.model, "anthropic/claude-opus-4-5");
+        assert!(!config.channels.telegram.enabled);
+    }
+
+    #[test]
+    fn test_config_validate_empty_model() {
+        let mut config = Config::default();
+        config.agents.defaults.model = "".to_string();
+        let errors = config.validate();
+        // Empty model should trigger error
+        assert!(errors.contains(&"Agent model cannot be empty".to_string()));
+    }
+
+    #[test]
+    fn test_config_validate_model_temperature() {
+        let mut config = Config::default();
+        config.agents.defaults.model = "test-model".to_string();
+        config.agents.defaults.temperature = 3.0; // Invalid
+
+        let errors = config.validate();
+        assert!(errors.iter().any(|e| e.contains("temperature")));
+    }
+
+    #[test]
+    fn test_config_validate_api_key_short() {
+        let mut config = Config::default();
+        config.agents.defaults.model = "test-model".to_string();
+        config.providers.openrouter.api_key = "short".to_string();
+
+        let errors = config.validate();
+        assert!(errors.iter().any(|e| e.contains("OpenRouter API key")));
+    }
+
+    #[test]
+    fn test_config_validate_telegram_enabled_without_token() {
+        let mut config = Config::default();
+        config.agents.defaults.model = "test-model".to_string();
+        config.channels.telegram.enabled = true;
+
+        let errors = config.validate();
+        assert!(errors.iter().any(|e| e.contains("Telegram token")));
+    }
+
+    #[test]
+    fn test_config_validate_valid() {
+        let mut config = Config::default();
+        config.agents.defaults.model = "test-model".to_string();
+        config.providers.openrouter.api_key = "sk-12345678901234567890".to_string();
+        config.channels.telegram.token = "123456:ABCDEFGHIJKLMNOP".to_string();
+
+        let errors = config.validate();
+        // Should have no validation errors
+        assert!(!errors.iter().any(|e| e.contains("Agent model")));
+        assert!(!errors.iter().any(|e| e.contains("OpenRouter")));
+    }
+
+    #[test]
+    fn test_config_has_llm_provider() {
+        let mut config = Config::default();
+        assert!(!config.has_llm_provider());
+
+        config.providers.openrouter.api_key = "sk-test".to_string();
+        assert!(config.has_llm_provider());
+    }
+
+    #[test]
+    fn test_config_has_enabled_channel() {
+        let config = Config::default();
+        assert!(!config.has_enabled_channel());
+
+        let mut config = Config::default();
+        config.channels.telegram.enabled = true;
+        assert!(config.has_enabled_channel());
+    }
+
+    #[test]
+    fn test_config_has_web_search() {
+        let config = Config::default();
+        assert!(!config.has_web_search());
+
+        let mut config = Config::default();
+        config.tools.web_search.api_key = "test-key".to_string();
+        assert!(config.has_web_search());
+    }
+
+    #[test]
+    fn test_get_api_key_priority() {
+        let mut config = Config::default();
+        assert!(config.get_api_key().is_none());
+
+        config.providers.openrouter.api_key = "openrouter-key".to_string();
+        assert_eq!(config.get_api_key(), Some("openrouter-key"));
+
+        config.providers.anthropic.api_key = "anthropic-key".to_string();
+        // OpenRouter has priority
+        assert_eq!(config.get_api_key(), Some("openrouter-key"));
+    }
+
+    #[test]
+    fn test_get_api_base() {
+        let mut config = Config::default();
+        assert!(config.get_api_base().is_none());
+
+        config.providers.openrouter.api_key = "test".to_string();
+        assert_eq!(config.get_api_base(), Some("https://openrouter.ai/api/v1"));
+    }
 }

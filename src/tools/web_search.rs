@@ -1,8 +1,14 @@
+
+
+
+
+
+
+//! Web tools - web search and fetch.
+
 use crate::config::Config;
 use reqwest;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
-use tracing::info;
 
 /// Web search result
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,6 +26,7 @@ pub struct BraveSearch {
 }
 
 impl BraveSearch {
+    /// Create a new Brave Search client
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
@@ -27,6 +34,7 @@ impl BraveSearch {
         }
     }
 
+    /// Create from config
     pub fn from_config(config: &Config) -> Option<Self> {
         let api_key = &config.tools.web_search.api_key;
         if api_key.is_empty() {
@@ -93,7 +101,7 @@ impl BraveSearch {
             .map_err(|e| format!("Parse error: {}", e))?;
 
         // Simple HTML to text extraction
-        let text = extract_text(&html);
+        let text = super::extract_text(&html);
         Ok(text)
     }
 }
@@ -111,67 +119,6 @@ struct BraveResult {
     description: String,
 }
 
-/// Simple HTML to text extraction
-fn extract_text(html: &str) -> String {
-    let mut text = String::new();
-    let mut in_tag = false;
-
-    for c in html.chars() {
-        if c == '<' {
-            in_tag = true;
-        } else if c == '>' {
-            in_tag = false;
-        } else if !in_tag {
-            text.push(c);
-        }
-    }
-
-    // Clean up whitespace
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-/// Get web search tool definition for LLM
-pub fn get_web_search_tool_definition() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": "web_search",
-            "description": "Search the web for information. Use this when you need current events or information not in your training data.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "The search query"
-                    }
-                },
-                "required": ["query"]
-            }
-        }
-    })
-}
-
-/// Get web fetch tool definition for LLM
-pub fn get_web_fetch_tool_definition() -> Value {
-    json!({
-        "type": "function",
-        "function": {
-            "name": "web_fetch",
-            "description": "Fetch and extract text content from a URL.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The URL to fetch"
-                    }
-                },
-                "required": ["url"]
-            }
-        }
-    })
-}
-
 /// Execute web search
 pub async fn execute_web_search(config: &Config, query: &str) -> String {
     if let Some(search) = BraveSearch::from_config(config) {
@@ -182,8 +129,10 @@ pub async fn execute_web_search(config: &Config, query: &str) -> String {
                 } else {
                     let mut output = format!("Search results for '{}':\n\n", query);
                     for (i, result) in results.iter().take(5).enumerate() {
-                        output += &format!("{}. {}\n   URL: {}\n   {}\n\n",
-                            i + 1, result.title, result.url, result.description);
+                        output += &format!(
+                            "{}. {}\n   URL: {}\n   {}\n\n",
+                            i + 1, result.title, result.url, result.description
+                        );
                     }
                     output
                 }
@@ -204,7 +153,8 @@ pub async fn execute_web_fetch(config: &Config, url: &str) -> String {
                     &content[..2000]
                 } else {
                     &content
-                }.to_string();
+                }
+                .to_string();
                 format!("Content from {}:\n\n{}\n\n( truncated to 2000 chars )", url, truncated)
             }
             Err(e) => format!("Fetch error: {}", e),

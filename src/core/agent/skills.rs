@@ -1,3 +1,7 @@
+//! Skills system - load and manage agent skills.
+//!
+//! Skills are reusable capabilities that can be enabled/disabled.
+
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -146,28 +150,4 @@ impl SkillManager {
     pub fn get_skill(&self, name: &str) -> Option<&Skill> {
         self.optional.iter().find(|s| s.name == name)
     }
-}
-
-/// Bootstrap files that are always loaded
-pub async fn load_bootstrap_files(workspace: &PathBuf) -> String {
-    let mut context = String::new();
-
-    let bootstrap_files = [
-        ("AGENTS.md", "Agent Instructions"),
-        ("SOUL.md", "Soul/Personality"),
-        ("USER.md", "User Preferences"),
-        ("TOOLS.md", "Tool Documentation"),
-        ("IDENTITY.md", "Core Identity"),
-    ];
-
-    for (filename, label) in &bootstrap_files {
-        let path = workspace.join(filename);
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                context.push_str(&format!("## {}\n\n{}\n\n", label, content));
-            }
-        }
-    }
-
-    context
 }
