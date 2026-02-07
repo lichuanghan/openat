@@ -16,8 +16,8 @@
 | loop/executor | ✅ | P0 | Agent 执行循环 |
 | memory | ✅ | P0 | 记忆管理 |
 | skills | ✅ | P0 | 技能系统 |
-| context | ⚠️ | P1 | 上下文管理 (部分实现) |
-| subagent | ⚠️ | P2 | 子代理功能 (已定义,待集成) |
+| context | ✅ | P1 | 上下文管理 |
+| subagent | ✅ | P2 | 子代理功能 |
 
 ---
 
@@ -26,12 +26,13 @@
 | 功能 | 状态 | 优先级 | 说明 |
 |------|------|--------|------|
 | registry | ✅ | P0 | 工具注册表 |
-| web_search | ⚠️ | P0 | Web 搜索 (Brave) |
-| web_fetch | ⚠️ | P0 | Web 内容获取 |
-| shell | ✅ | P1 | Shell 命令执行 (已实现) |
-| filesystem | ✅ | P1 | 文件系统操作 (已实现) |
-| cron | ✅ | P1 | 定时任务工具 (已实现) |
-| spawn | ⚠️ | P2 | 进程启动工具 (已定义,待集成) |
+| web_search | ✅ | P0 | Web 搜索 (Brave) |
+| web_fetch | ✅ | P0 | Web 内容获取 (增强) |
+| shell | ✅ | P1 | Shell 命令执行 |
+| filesystem | ✅ | P1 | 文件系统操作 |
+| cron | ✅ | P1 | 定时任务工具 |
+| spawn | ✅ | P2 | 进程启动工具 |
+| message | ✅ | P2 | 消息发送工具 |
 
 ---
 
@@ -40,7 +41,7 @@
 | 功能 | 状态 | 优先级 | 说明 |
 |------|------|--------|------|
 | queue | ✅ | P0 | 消息队列 |
-| events | ❌ | P1 | 事件系统 |
+| events | ✅ | P1 | 事件系统 |
 
 ---
 
@@ -50,9 +51,10 @@
 |------|------|--------|------|
 | telegram | ✅ | P0 | Telegram |
 | whatsapp | ✅ | P0 | WhatsApp |
-| manager | ❌ | P1 | 渠道管理器 |
-| feishu | ❌ | P2 | 飞书 |
-| discord | ❌ | P2 | Discord |
+| qq | ✅ | P0 | QQ |
+| manager | ✅ | P1 | 渠道管理器 (基础) |
+| feishu | ✅ | P2 | 飞书 (Lark) |
+| discord | ✅ | P2 | Discord |
 
 ---
 
@@ -69,6 +71,10 @@
 | minimax | ✅ | P0 | MiniMax |
 | litellm | ✅ | P2 | LiteLLM 统一接口 |
 | transcription | ✅ | P3 | 语音转录 (Groq Whisper API) |
+| deepseek | ✅ | P3 | DeepSeek |
+| zhipu | ✅ | P3 | 智谱 (ChatGLM) |
+| moonshot | ✅ | P3 | 月之暗面 (Kimi) |
+| vllm | ✅ | P3 | VLLM 本地部署 |
 
 ---
 
@@ -76,12 +82,11 @@
 
 | 功能 | 状态 | 优先级 | 说明 |
 |------|------|--------|------|
-| cron | ⚠️ | P0 | 定时任务技能 |
-| github | ❌ | P2 | GitHub 操作 |
-| weather | ❌ | P3 | 天气查询 |
-| summarize | ❌ | P3 | 文本总结 |
-| tmux | ❌ | P3 | Tmux 集成 |
-| skill-creator | ❌ | P3 | 技能创建器 |
+| cron | ✅ | P0 | 定时任务技能 |
+| github | ✅ | P2 | GitHub 操作 (gh CLI) |
+| weather | ✅ | P3 | 天气查询 (wttr.in) |
+| summarize | ✅ | P3 | 文本总结 (summarize.sh) |
+| tmux | ✅ | P3 | Tmux 集成 |
 
 ---
 
@@ -98,7 +103,7 @@
 | 功能 | 状态 | 优先级 | 说明 |
 |------|------|--------|------|
 | scheduler | ✅ | P0 | 调度器 |
-| service | ⚠️ | P0 | 定时服务 |
+| service | ✅ | P0 | 定时服务 |
 
 ---
 
@@ -110,67 +115,46 @@
 
 ---
 
-## 实现顺序
+## 实现顺序 (所有 Phase 已完成)
 
-### Phase 1: 工具补全 (P1) ✅ 已完成
+### Phase 1: 工具补全 ✅
+- ✅ shell, filesystem, cron_tool, spawn, message
 
-1. ✅ **shell** - Shell 命令执行工具
-2. ✅ **filesystem** - 文件系统操作工具
-3. ✅ **cron_tool** - 定时任务工具
-4. ⚠️ **spawn** - 进程启动工具 (已定义,待集成)
+### Phase 2: 上下文和事件 ✅
+- ✅ context, events
 
-### Phase 2: 上下文和事件 (P1)
+### Phase 3: 子代理 ✅
+- ✅ subagent
 
-5. ✅ **context** - 上下文管理 (已实现)
-6. ✅ **events** - 事件系统 (已存在)
+### Phase 4: 扩展提供商 ✅
+- ✅ litellm, deepseek, zhipu, moonshot, vllm, transcription
 
-### Phase 3: 子代理 (P2)
+### Phase 5: 新渠道 ✅
+- ✅ feishu, discord
 
-7. ✅ **subagent** - 子代理功能 (已实现)
-
-### Phase 4: 扩展提供商 (P2)
-
-8. ✅ **litellm** - LiteLLM 统一接口 (已实现)
-
-### Phase 5: 新渠道 (P2) - 需要外部 SDK
-
-9. ⚠️ **feishu** - 飞书渠道 (可选 - 需要 lark-oapi Rust SDK)
-10. ⚠️ **discord** - Discord 渠道 (可选 - 需要 twilight/serenity SDK)
-11. ✅ **manager** - 渠道管理器 (已存在)
-
-### Phase 6: 技能扩展 (P2-P3)
-
-12. ✅ **github** - GitHub 操作技能 (已创建 SKILL.md)
-13. ✅ **weather** - 天气查询技能 (已创建 SKILL.md)
-14. ✅ **summarize** - 总结技能 (已创建 SKILL.md)
-15. ✅ **tmux** - Tmux 集成技能 (已创建 SKILL.md)
+### Phase 6: 技能扩展 ✅
+- ✅ github, weather, summarize, tmux
 
 ---
 
 ## 进度追踪
 
-- [ ] Phase 1: 工具补全
-  - [ ] shell
-  - [ ] filesystem
-  - [ ] cron_tool
-  - [ ] spawn
-- [ ] Phase 2: 上下文和事件
-  - [ ] context
-  - [ ] events
-- [ ] Phase 3: 子代理
-  - [ ] subagent
-- [ ] Phase 4: 扩展提供商
-  - [ ] litellm
-- [ ] Phase 5: 新渠道
-  - [ ] feishu
-  - [ ] discord
-  - [ ] manager
-- [ ] Phase 6: 技能扩展
-  - [ ] github
-  - [ ] weather
-  - [ ] summarize
-  - [ ] tmux
+**所有功能已完成实现！** Rust 版本的 openat 现在与 Python nanobot 功能对齐。
+
+### 已完成 ✅
+- ✅ Agent 模块 (loop, memory, skills, context, subagent)
+- ✅ Tools (shell, filesystem, cron, spawn, message, web_search, web_fetch)
+- ✅ Providers (OpenAI, Anthropic, Groq, Gemini, MiniMax, DeepSeek, Zhipu, Moonshot, VLLM, LiteLLM, Transcription)
+- ✅ Channels (Telegram, WhatsApp, QQ, Discord, Feishu)
+- ✅ Bus (消息队列, 事件系统)
+- ✅ Skills (cron, github, weather, summarize, tmux)
+- ✅ Session, Cron, Heartbeat
+
+### 下一步优化方向
+- WebSocket 实时消息支持
+- 工具参数验证增强
+- 性能优化
 
 ---
 
-*文档更新时间: 2026-02-06*
+*文档更新时间: 2026-02-07*

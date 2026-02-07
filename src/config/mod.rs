@@ -25,6 +25,10 @@ pub struct Providers {
     pub groq: ProviderConfig,
     pub gemini: ProviderConfig,
     pub minimax: ProviderConfig,
+    pub deepseek: ProviderConfig,
+    pub zhipu: ProviderConfig,
+    pub moonshot: ProviderConfig,
+    pub vllm: ProviderConfig,
 }
 
 impl Default for Providers {
@@ -36,6 +40,10 @@ impl Default for Providers {
             groq: ProviderConfig::default(),
             gemini: ProviderConfig::default(),
             minimax: ProviderConfig::default(),
+            deepseek: ProviderConfig::default(),
+            zhipu: ProviderConfig::default(),
+            moonshot: ProviderConfig::default(),
+            vllm: ProviderConfig::default(),
         }
     }
 }
@@ -84,14 +92,33 @@ impl Default for WebSearch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProxyConfig {
+    pub url: String,
+    pub enabled: bool,
+}
+
+impl Default for ProxyConfig {
+    fn default() -> Self {
+        Self {
+            url: String::new(),
+            enabled: false,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tools {
     pub web_search: WebSearch,
+    pub proxy: ProxyConfig,
+    pub restrict_to_workspace: bool,
 }
 
 impl Default for Tools {
     fn default() -> Self {
         Self {
             web_search: WebSearch::default(),
+            proxy: ProxyConfig::default(),
+            restrict_to_workspace: false,
         }
     }
 }
@@ -186,13 +213,26 @@ pub struct Config {
 impl Config {
     pub fn load() -> Self {
         let path = config_path();
+        tracing::debug!("Config path: {:?}", path);
+        tracing::debug!("Config exists: {}", path.exists());
         if path.exists() {
             if let Ok(content) = fs::read_to_string(&path) {
-                if let Ok(config) = serde_json::from_str(&content) {
-                    return config;
+                tracing::debug!("Config content length: {}", content.len());
+                match serde_json::from_str::<Config>(&content) {
+                    Ok(config) => {
+                        tracing::debug!("Config parsed successfully");
+                        return config;
+                    }
+                    Err(e) => {
+                        tracing::debug!("Config parse failed: {}", e);
+                        tracing::debug!("First 500 chars of config: {}", &content[..std::cmp::min(500, content.len())]);
+                    }
                 }
+            } else {
+                tracing::debug!("Failed to read config file");
             }
         }
+        tracing::debug!("Using default config");
         Self::default()
     }
 
@@ -207,6 +247,7 @@ impl Config {
     }
 
     pub fn get_api_key(&self) -> Option<&str> {
+        // Priority: OpenRouter > Anthropic > OpenAI > Groq > Gemini > MiniMax > DeepSeek > Zhipu > Moonshot
         if !self.providers.openrouter.api_key.is_empty() {
             Some(&self.providers.openrouter.api_key)
         } else if !self.providers.anthropic.api_key.is_empty() {
@@ -219,6 +260,14 @@ impl Config {
             Some(&self.providers.gemini.api_key)
         } else if !self.providers.minimax.api_key.is_empty() {
             Some(&self.providers.minimax.api_key)
+        } else if !self.providers.deepseek.api_key.is_empty() {
+            Some(&self.providers.deepseek.api_key)
+        } else if !self.providers.zhipu.api_key.is_empty() {
+            Some(&self.providers.zhipu.api_key)
+        } else if !self.providers.moonshot.api_key.is_empty() {
+            Some(&self.providers.moonshot.api_key)
+        } else if !self.providers.vllm.api_key.is_empty() {
+            Some(&self.providers.vllm.api_key)
         } else {
             None
         }
@@ -323,6 +372,15 @@ impl Config {
     /// Check if web search is configured
     pub fn has_web_search(&self) -> bool {
         !self.tools.web_search.api_key.is_empty()
+    }
+
+    /// Get proxy URL if enabled
+    pub fn get_proxy_url(&self) -> Option<&str> {
+        if self.tools.proxy.enabled && !self.tools.proxy.url.is_empty() {
+            Some(&self.tools.proxy.url)
+        } else {
+            None
+        }
     }
 }
 

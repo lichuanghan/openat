@@ -18,6 +18,7 @@ pub struct AgentExecutor {
     workspace: PathBuf,
     bus: MessageBus,
     max_history_messages: usize,
+    model: String,
 }
 
 impl AgentExecutor {
@@ -27,6 +28,7 @@ impl AgentExecutor {
         let sessions_dir = crate::config::workspace_path().join("sessions");
 
         let system_prompt = Self::build_system_prompt(&workspace);
+        let model = config.agents.defaults.model.clone();
 
         Self {
             provider,
@@ -35,6 +37,7 @@ impl AgentExecutor {
             workspace,
             bus: bus.clone(),
             max_history_messages: 20,
+            model,
         }
     }
 
@@ -291,8 +294,7 @@ You have access to tools that you can use:
 
     /// Get the model name from config.
     fn get_model(&self) -> String {
-        // Default model - could be extended to read from config
-        "anthropic/claude-opus-4-5".to_string()
+        self.model.clone()
     }
 
     /// Execute a tool.

@@ -1,3 +1,5 @@
+pub mod discord;
+pub mod feishu;
 pub mod telegram;
 pub mod whatsapp;
 pub mod qq;

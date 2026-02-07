@@ -15,7 +15,7 @@ impl MiniMaxProvider {
     pub fn new(api_key: String) -> Self {
         Self {
             api_key,
-            api_base: "https://api.minimax.chat/v1".to_string(),
+            api_base: "https://api.minimax.chat/v1/text/chatcompletion_v2".to_string(),
         }
     }
 }
@@ -42,8 +42,9 @@ impl LLMProvider for MiniMaxProvider {
         });
 
         let response = client
-            .post(&format!("{}/chat/completions", self.api_base))
+            .post(&self.api_base)
             .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("X-Api-Key", &self.api_key)
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -51,7 +52,10 @@ impl LLMProvider for MiniMaxProvider {
             .map_err(|e| format!("Request failed: {}", e))?;
 
         let status = response.status();
+        tracing::debug!("MiniMax response status: {}", status);
+
         let text = response.text().await.map_err(|e| format!("Read error: {}", e))?;
+        tracing::debug!("MiniMax response body: {}", text);
 
         if !status.is_success() {
             return Err(format!("API error (status {}): {}", status, text));

@@ -260,6 +260,42 @@ pub enum Event {
     Error { channel: String, error: String },
 }
 
+impl Event {
+    /// Create a connection event
+    pub fn connect(channel: &str, chat_id: &str) -> Self {
+        Self::Connect {
+            channel: channel.to_string(),
+            chat_id: chat_id.to_string(),
+        }
+    }
+
+    /// Create a disconnection event
+    pub fn disconnect(channel: &str, chat_id: &str) -> Self {
+        Self::Disconnect {
+            channel: channel.to_string(),
+            chat_id: chat_id.to_string(),
+        }
+    }
+
+    /// Create an error event
+    pub fn error(channel: &str, error: &str) -> Self {
+        Self::Error {
+            channel: channel.to_string(),
+            error: error.to_string(),
+        }
+    }
+
+    /// Get the channel name from an event
+    pub fn channel(&self) -> &str {
+        match self {
+            Event::Message(msg) => &msg.channel,
+            Event::Connect { channel, .. } => channel,
+            Event::Disconnect { channel, .. } => channel,
+            Event::Error { channel, .. } => channel,
+        }
+    }
+}
+
 /// Tool definition for LLM
 #[derive(Debug, Clone)]
 pub struct ToolDefinition {
