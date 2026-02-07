@@ -56,6 +56,11 @@ impl SimpleAgent {
 
             match self.provider.chat(&messages, &self.model, &tools).await {
                 Ok(response) => {
+                    debug!("LLM response: content={:?}, tool_calls={}",
+                        response.content.as_ref().map(|s| s.len()),
+                        response.tool_calls.len());
+
+                    // If no tool calls, return the response directly
                     if response.tool_calls.is_empty() {
                         debug!("No tool calls, returning direct response");
                         return response.content.unwrap_or_else(|| "No response".to_string());
@@ -78,27 +83,57 @@ impl SimpleAgent {
                         "tool_calls": tool_call_json
                     }));
 
+                    // Execute all tool calls
+                    let mut tool_results = Vec::new();
                     for tool_call in &response.tool_calls {
+                        // MiniMax may return arguments as a string instead of JSON object
                         let args: HashMap<String, Value> = if tool_call.arguments.is_object() {
                             tool_call.arguments.as_object().unwrap()
                                 .iter()
                                 .map(|(k, v): (&String, &Value)| (k.clone(), v.clone()))
                                 .collect()
+                        } else if tool_call.arguments.is_string() {
+                            // Parse string arguments as JSON
+                            let args_str = tool_call.arguments.as_str().unwrap_or("{}");
+                            if let Ok(obj) = serde_json::from_str::<Value>(args_str) {
+                                if obj.is_object() {
+                                    obj.as_object().unwrap()
+                                        .iter()
+                                        .map(|(k, v)| (k.clone(), v.clone()))
+                                        .collect()
+                                } else {
+                                    HashMap::new()
+                                }
+                            } else {
+                                HashMap::new()
+                            }
                         } else {
                             HashMap::new()
                         };
 
-                        debug!("Executing tool: {}", tool_call.name);
+                        debug!("Executing tool: {} with args: {:?}", tool_call.name, args);
                         let result = execute_tool(&tool_call.name, &args, &self.workspace).await;
                         debug!("Tool result: {} bytes", result.len());
 
-                        messages.push(json!({
+                        tool_results.push(json!({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
                             "name": tool_call.name,
                             "content": result
                         }));
                     }
+
+                    // Add all tool results to messages
+                    for result in &tool_results {
+                        messages.push(result.clone());
+                    }
+
+                    // For MiniMax and similar models that keep calling tools,
+                    // we need to explicitly ask for a final response without more tool calls
+                    messages.push(json!({
+                        "role": "user",
+                        "content": "重要提示：工具已经执行完成，上面的 tool 消息就是执行结果。请基于这个结果直接给出最终回答，绝对不要再调用任何工具。"
+                    }));
                 }
                 Err(e) => {
                     tracing::error!("LLM error: {}", e);
@@ -114,25 +149,32 @@ impl SimpleAgent {
     fn system_prompt(&self) -> String {
         let now = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
         format!(
-            r#"You are openat, a helpful AI assistant.
+            r#"You are OpenAt, a helpful AI assistant.
 
 Current time: {}
+Workspace: {}
 
-Your workspace at: {}
+## Tool Usage Rules
+When you request to use a tool, the system will automatically execute it and return the result to you. You will see messages with role: "tool" containing the execution results.
+
+IMPORTANT - After receiving tool results:
+1. You MUST provide a final answer based on the tool results
+2. You MUST NOT request any more tools
+3. NEVER say "parameter required" - tools are already executed
+4. Simply report the tool result and give your answer
 
 ## Available Tools
-You have access to tools that you can use:
-- read_file: Read file contents
-- write_file: Write file to disk
-- list_dir: List directory contents
-- exec: Execute shell commands
-- web_search: Search the web for information
-- web_fetch: Fetch and extract text from a URL
+- read_file: Read file contents (params: path)
+- write_file: Write content to file, creates directories as needed (params: path, content)
+- list_dir: List directory contents (params: path)
+- exec: Execute shell command and return output (params: cmd)
+- web_search: Search the web for information (params: query)
+- web_fetch: Fetch and extract text from URL (params: url)
 
 ## Guidelines
-- Use tools when needed to accomplish tasks
-- Always explain what you're doing
-- Write important information to files for memory"#,
+- Use tools to complete user requests
+- After tool execution, report results and give your answer
+- Do not request additional tools after receiving results"#,
             now,
             self.workspace.display()
         )
@@ -146,7 +188,7 @@ pub fn get_tool_definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "read_file",
-                "description": "Read the contents of a file at the given path.",
+                "description": "Read the contents of a file at the specified path",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -163,7 +205,7 @@ pub fn get_tool_definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "write_file",
-                "description": "Write content to a file. Creates parent directories if needed.",
+                "description": "Write content to a file, creates parent directories if needed",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -184,7 +226,7 @@ pub fn get_tool_definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "list_dir",
-                "description": "List the contents of a directory.",
+                "description": "List the contents of a directory",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -201,7 +243,7 @@ pub fn get_tool_definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "exec",
-                "description": "Execute a shell command and return the output.",
+                "description": "Execute a shell command and return the output",
                 "parameters": {
                     "type": "object",
                     "properties": {
@@ -218,13 +260,13 @@ pub fn get_tool_definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "web_search",
-                "description": "Search the web for information. Use this when you need current events or information not in your training data.",
+                "description": "在网上搜索信息，当需要当前事件或训练数据中没有的信息时使用",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "query": {
                             "type": "string",
-                            "description": "The search query"
+                            "description": "搜索查询"
                         }
                     },
                     "required": ["query"]
@@ -235,13 +277,13 @@ pub fn get_tool_definitions() -> Vec<Value> {
             "type": "function",
             "function": {
                 "name": "web_fetch",
-                "description": "Fetch and extract text content from a URL.",
+                "description": "从 URL 获取并提取文本内容",
                 "parameters": {
                     "type": "object",
                     "properties": {
                         "url": {
                             "type": "string",
-                            "description": "The URL to fetch"
+                            "description": "要获取的 URL"
                         }
                     },
                     "required": ["url"]
@@ -291,10 +333,10 @@ pub async fn execute_tool(name: &str, args: &HashMap<String, Value>, workspace: 
                         if items.is_empty() {
                             format!("Directory {} is empty", path)
                         } else {
-                            items.join("\n")
+                            format!("Directory contents:\n{}", items.join("\n"))
                         }
                     }
-                    Err(e) => format!("Error listing directory: {}", e),
+                    Err(e) => format!("Error reading directory: {}", e),
                 }
             } else {
                 "Error: path parameter required".to_string()
@@ -312,23 +354,29 @@ pub async fn execute_tool(name: &str, args: &HashMap<String, Value>, workspace: 
                     Ok(output) => {
                         let stdout = String::from_utf8_lossy(&output.stdout);
                         let stderr = String::from_utf8_lossy(&output.stderr);
-                        format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
+                        if !stdout.is_empty() {
+                            format!("Command output:\n{}", stdout.trim())
+                        } else if !stderr.is_empty() {
+                            format!("Error output:\n{}", stderr.trim())
+                        } else {
+                            "Command executed successfully, no output".to_string()
+                        }
                     }
-                    Err(e) => format!("Error executing command: {}", e),
+                    Err(e) => format!("Command execution failed: {}", e),
                 }
             } else {
                 "Error: cmd parameter required".to_string()
             }
         }
         "web_search" => {
-            if let Some(query) = args.get("query").and_then(|v| v.as_str()) {
+            if let Some(_query) = args.get("query").and_then(|v| v.as_str()) {
                 "Web search executed. (requires config)".to_string()
             } else {
                 "Error: query parameter required".to_string()
             }
         }
         "web_fetch" => {
-            if let Some(url) = args.get("url").and_then(|v| v.as_str()) {
+            if let Some(_url) = args.get("url").and_then(|v| v.as_str()) {
                 "Web fetch executed. (requires config)".to_string()
             } else {
                 "Error: url parameter required".to_string()
