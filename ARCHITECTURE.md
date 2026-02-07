@@ -1,4 +1,4 @@
-# Nanobot 项目优化方案
+# Openat 项目优化方案
 
 > Ultra-Lightweight Personal AI Assistant 架构重构计划
 
@@ -449,4 +449,4 @@ cargo test
 ---
 
 *文档生成时间: 2026-02-06*
-*项目: nanobot - Ultra-Lightweight Personal AI Assistant*
+*项目: openat - Ultra-Lightweight Personal AI Assistant*
