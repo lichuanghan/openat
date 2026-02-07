@@ -7,9 +7,9 @@ services:
       - "18790:18790"
     volumes:
       # Mount configuration directory
-      - ${HOME}/.nanobot:/home/openat/.nanobot:rw
+      - ${HOME}/.openat:/home/openat/.openat:rw
       # Optional: mount workspace for file operations
-      - ${HOME}/.nanobot/workspace:/home/openat/.nanobot/workspace:rw
+      - ${HOME}/.openat/workspace:/home/openat/.openat/workspace:rw
     environment:
       # Logging level: debug, info, warn, error
       - RUST_LOG=openat=info

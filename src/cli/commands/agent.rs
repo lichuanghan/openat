@@ -44,7 +44,7 @@ pub async fn interactive() -> Result<()> {
     let workspace = config::ensure_workspace_exists();
 
     if config.get_api_key().is_none() {
-        println!("Warning: No API key configured. Add to ~/.nanobot/config.json");
+        println!("Warning: No API key configured. Add to ~/.openat/config.json");
     }
 
     let provider = create_provider(&config);

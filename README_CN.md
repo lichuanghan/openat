@@ -33,7 +33,7 @@ cargo run -- onboard
 
 ### 配置
 
-编辑 `~/.nanobot/config.json`:
+编辑 `~/.openat/config.json`:
 
 ```json
 {

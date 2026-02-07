@@ -296,7 +296,7 @@ services:
     build: .
     command: gateway
     volumes:
-      - ~/.nanobot:/home/openat/.nanobot:rw
+      - ~/.openat:/home/openat/.openat:rw
     environment:
       - RUST_LOG=openat=info
     restart: unless-stopped

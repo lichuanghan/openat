@@ -46,7 +46,7 @@ pub async fn login(channel: Option<&str>) -> Result<()> {
     match channel {
         "telegram" => {
             println!("Telegram login not yet implemented.");
-            println!("Add your bot token to ~/.nanobot/config.json");
+            println!("Add your bot token to ~/.openat/config.json");
         }
         "whatsapp" => {
             println!("WhatsApp login: Scan the QR code from WA Bridge");
@@ -55,7 +55,7 @@ pub async fn login(channel: Option<&str>) -> Result<()> {
             println!("QQ login via OneBot:");
             println!("1. Install go-cqhttp or another OneBot v11 implementation");
             println!("2. Configure it to connect to WebSocket: ws://localhost:3000");
-            println!("3. Set the event_url in ~/.nanobot/config.json");
+            println!("3. Set the event_url in ~/.openat/config.json");
         }
         _ => {
             println!("Unknown channel: {}", channel);

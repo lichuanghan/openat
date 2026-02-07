@@ -398,14 +398,14 @@ impl Default for Config {
 pub fn config_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".nanobot")
+        .join(".openat")
         .join("config.json")
 }
 
 pub fn workspace_path() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".nanobot")
+        .join(".openat")
         .join("workspace")
 }
 

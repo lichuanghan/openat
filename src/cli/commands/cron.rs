@@ -11,7 +11,7 @@ use std::path::PathBuf;
 fn get_cron_dir() -> PathBuf {
     dirs::home_dir()
         .unwrap_or_else(|| PathBuf::from("."))
-        .join(".nanobot")
+        .join(".openat")
         .join("cron")
 }
 

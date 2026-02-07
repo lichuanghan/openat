@@ -29,17 +29,17 @@ pub async fn onboard() -> Result<()> {
 
     let config = Config::load();
     config.save()?;
-    println!("[+] Created ~/.nanobot/config.json");
+    println!("[+] Created ~/.openat/config.json");
 
     create_template(&workspace, "AGENTS.md", "# Agent Instructions\n\nYou are a helpful AI assistant.")?;
     create_template(&workspace, "SOUL.md", "# Soul\n\nI am openat, an AI assistant.")?;
     create_template(&workspace, "USER.md", "# User\n\nInformation about the user.")?;
     create_template(&workspace.join("memory"), "MEMORY.md", "# Memory\n\nImportant information.")?;
 
-    println!("[+] Created workspace at ~/.nanobot/workspace");
+    println!("[+] Created workspace at ~/.openat/workspace");
     println!("\n{}", LOGO);
     println!("Ready! Next steps:");
-    println!("  1. Add API key to ~/.nanobot/config.json");
+    println!("  1. Add API key to ~/.openat/config.json");
     println!("  2. Run: openat agent -m \"Hello!\"");
     Ok(())
 }

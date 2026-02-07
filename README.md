@@ -33,7 +33,7 @@ cargo run -- onboard
 
 ### Configure
 
-Edit `~/.nanobot/config.json`:
+Edit `~/.openat/config.json`:
 
 ```json
 {
