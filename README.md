@@ -10,12 +10,11 @@ Ultra-Lightweight Personal AI Assistant in Rust
 
 ## Features
 
-- **Multi-LLM Support**: OpenRouter, Anthropic Claude, OpenAI, Groq, Gemini, MiniMax
-- **Multi-Channel**: Telegram, WhatsApp, QQ (via OneBot)
-- **Tools**: File operations, shell commands, web search/fetch
+- **Multi-LLM Support**: MiniMax, DeepSeek, OpenRouter, Anthropic, OpenAI, Groq, Gemini, Zhipu, Moonshot, VLLM
+- **Multi-Channel**: Telegram, WhatsApp, QQ (via OneBot), Discord, Feishu
+- **Tools**: File operations, shell commands, web search/fetch, cron jobs
 - **Memory**: Long-term and session-based memory
-- **Cron Jobs**: Scheduled tasks with delivery
-- **Session Management**: JSON-based conversation history
+- **Agent**: Simple CLI agent and full-featured executor with tool support
 
 ## Quick Start
 
@@ -25,10 +24,12 @@ Ultra-Lightweight Personal AI Assistant in Rust
 cargo build --release
 ```
 
+Or use pre-built binary from releases.
+
 ### Initialize
 
 ```bash
-cargo run -- onboard
+./target/release/openat onboard
 ```
 
 ### Configure
@@ -41,11 +42,17 @@ Edit `~/.openat/config.json`:
     "minimax": {
       "api_key": "your-api-key",
       "api_base": "https://api.minimax.chat/v1"
+    },
+    "deepseek": {
+      "api_key": "your-api-key",
+      "api_base": null
     }
   },
   "agents": {
     "defaults": {
-      "model": "minimax/MiniMax-M2.1"
+      "model": "minimax/MiniMax-M2.1",
+      "max_tokens": 4096,
+      "temperature": 0.7
     }
   }
 }
@@ -57,211 +64,188 @@ Edit `~/.openat/config.json`:
 
 ```bash
 # Single message
-cargo run -- agent "Hello!"
+openat agent "Hello!"
 
 # Interactive mode
-cargo run -- agent
+openat agent
 ```
 
-### Channel Commands
+### CLI Commands
 
 ```bash
-# Check channel status
-cargo run -- channel-status
+# Check status
+openat status
 
-# QQ setup help
-cargo run -- channel-login qq
+# Channel management
+openat channel-status
+openat channel-login telegram
+openat channel-login qq
+
+# Gateway mode (run all enabled channels)
+openat gateway
 ```
 
-### Gateway Mode
+## Supported Providers
 
-Start all enabled channels:
+| Provider | Env Variable | Config Key | Status |
+|----------|--------------|------------|--------|
+| MiniMax | `MINIMAX_API_KEY` | `minimax` | ✅ Verified |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` | ✅ Verified |
+| OpenRouter | `OPENROUTER_API_KEY` | `openrouter` | Ready |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` | Ready |
+| OpenAI | `OPENAI_API_KEY` | `openai` | Ready |
+| Groq | `GROQ_API_KEY` | `groq` | Ready |
+| Gemini | `GEMINI_API_KEY` | `gemini` | Ready |
+| Zhipu | `ZHIPU_API_KEY` | `zhipu` | Ready |
+| Moonshot | `MOONSHOT_API_KEY` | `moonshot` | Ready |
+| VLLM | - | `vllm` | Ready |
 
-```bash
-cargo run -- gateway
-```
+## Supported Channels
 
-## Configuration
+| Channel | Protocol | Status |
+|---------|----------|--------|
+| Telegram | Bot API | Ready |
+| WhatsApp | WebSocket Bridge | Ready |
+| QQ | OneBot v11 | Ready |
+| Discord | Bot API | Ready |
+| Feishu | App Webhook | Ready |
 
-### Providers
+## Available Tools
 
-| Provider | Config Key | Required |
-|----------|-----------|----------|
-| MiniMax | `minimax` | `api_key` |
-| OpenRouter | `openrouter` | `api_key` |
-| Anthropic | `anthropic` | `api_key` |
-| OpenAI | `openai` | `api_key` |
-| Groq | `groq` | `api_key` |
-| Gemini | `gemini` | `api_key` |
-
-### Channels
-
-#### Telegram
-
-```json
-"telegram": {
-  "enabled": true,
-  "token": "your-bot-token",
-  "allowed_users": ["123456789"]
-}
-```
-
-#### WhatsApp
-
-```json
-"whatsapp": {
-  "enabled": true,
-  "bridge_url": "ws://localhost:3001"
-}
-```
-
-#### QQ (OneBot)
-
-```json
-"qq": {
-  "enabled": true,
-  "api_url": "http://localhost:3000",
-  "event_url": "ws://localhost:3000",
-  "access_token": "",
-  "allowed_users": ["10001"]
-}
-```
-
-**Note**: QQ requires a OneBot v11 compatible client like [go-cqhttp](https://github.com/Mrs4s/go-cqhttp)
-
-### Tools
-
-Available tools for agent:
-- `read_file`: Read file contents
-- `write_file`: Write file to disk
-- `list_dir`: List directory contents
-- `exec`: Execute shell commands
-- `web_search`: Search the web
-- `web_fetch`: Fetch URL content
-
-### Cron Jobs
-
-```bash
-# List jobs
-cargo run -- cron-list
-
-# Add job
-cargo run -- cron-add "daily-check" "Good morning!" --every 86400
-
-# Remove job
-cargo run -- cron-remove <job-id>
-```
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read file contents |
+| `write_file` | Write file to disk |
+| `list_dir` | List directory contents |
+| `exec` | Execute shell commands |
+| `web_search` | Search the web |
+| `web_fetch` | Fetch URL content |
 
 ## Project Structure
 
 ```
 src/
-├── agent/          # Agent implementation
-│   ├── memory.rs  # Memory system
-│   ├── skills.rs  # Skills system
-│   └── tools/     # Tool definitions
-├── channels/       # Channel implementations
-│   ├── telegram.rs
-│   ├── whatsapp.rs
-│   └── qq.rs      # QQ via OneBot
-├── cli.rs         # CLI commands
-├── config/        # Configuration
-├── cron.rs        # Job scheduling
-├── heartbeat.rs   # Heartbeat monitor
-├── providers.rs   # LLM providers
-├── session.rs     # Session management
-└── bus.rs         # Message bus
+├── main.rs                 # Entry point
+├── cli/                    # CLI commands
+│   ├── mod.rs
+│   └── commands/
+│       ├── agent.rs        # Agent command
+│       ├── channel.rs      # Channel management
+│       ├── cron.rs         # Cron jobs
+│       └── gateway.rs      # Gateway mode
+├── core/                   # Core modules
+│   ├── agent/              # Agent implementations
+│   │   ├── simple.rs       # Simple CLI agent
+│   │   ├── executor.rs     # Full agent with tools
+│   │   ├── memory.rs       # Memory management
+│   │   ├── skills.rs        # Skills system
+│   │   └── context.rs      # Context builder
+│   ├── bus/                # Message bus
+│   ├── session/            # Session management
+│   └── scheduler/          # Cron scheduler
+├── llm/                    # LLM providers
+│   ├── providers/          # Provider implementations
+│   │   ├── minimax.rs
+│   │   ├── deepseek.rs
+│   │   ├── openai.rs
+│   │   ├── anthropic.rs
+│   │   └── ...
+│   └── mod.rs
+├── channels/              # Channel adapters
+│   ├── telegram/
+│   ├── whatsapp/
+│   ├── qq/
+│   ├── discord/
+│   └── feishu.rs
+├── tools/                 # Tool implementations
+│   ├── filesystem.rs       # File operations
+│   ├── shell.rs            # Shell commands
+│   ├── web_search.rs       # Web search
+│   ├── fetch.rs            # URL fetch
+│   └── cron_tool.rs        # Cron jobs
+├── config/                 # Configuration
+├── types/                  # Type definitions
+└── heartbeat/              # Heartbeat monitor
 ```
 
-## Architecture Design
+## Code Statistics
 
-### Core Components
+- **Source Files**: 50 Rust files
+- **Total Lines**: 8,309 lines
+- **Test Coverage**: 57 unit tests passing
+
+## Testing
+
+```bash
+# Run all tests
+cargo test
+
+# Run with coverage
+cargo test --lib
+
+# E2E testing with provider
+openat agent "Your message"
+```
+
+## Configuration Guide
+
+### Environment Variables
+
+You can use environment variables instead of config file:
+
+```bash
+export MINIMAX_API_KEY="your-key"
+export DEEPSEEK_API_KEY="your-key"
+```
+
+### Priority Order
+
+When multiple providers are configured:
+1. Environment variables (checked first)
+2. Config file values (in priority order)
+
+Provider priority: OpenRouter > Anthropic > OpenAI > Groq > Gemini > MiniMax > DeepSeek > Zhipu > Moonshot
+
+## Docker
+
+```bash
+# Build
+docker build -t openat .
+
+# Run
+docker run -d \
+  -e MINIMAX_API_KEY="your-key" \
+  -v ~/.openat:/home/openat/.openat \
+  -p 18790:18790 \
+  openat
+```
+
+Or use docker-compose:
+
+```bash
+docker-compose up -d
+```
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
 │                    CLI / Gateway                       │
 ├─────────────────────────────────────────────────────┤
-│                      Agent                            │
+│                      Agent                             │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
 │  │   Memory    │  │   Skills   │  │   Tools     │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  │
 ├─────────────────────────────────────────────────────┤
-│                   Message Bus                         │
+│                   Message Bus                          │
 ├───────────────┬───────────────┬───────────────────────┤
-│   Telegram   │   WhatsApp   │         QQ            │
-│   Channel    │   Channel    │      (OneBot)        │
-└───────────────┴───────────────┴───────────────────────┘
+│   Telegram    │   WhatsApp    │         QQ            │
+│   Channel     │   Channel     │      (OneBot)         │
+├───────────────┴───────────────┴───────────────────────┤
+│                      LLM Providers                      │
+│  MiniMax | DeepSeek | OpenAI | Anthropic | ...       │
+└─────────────────────────────────────────────────────┘
 ```
-
-### Module Description
-
-- **Agent**: Core dialogue engine, handles user input, tool calls, memory management
-- **Memory**: Long-term (persistent) and short-term (session) memory
-- **Skills**: Pluggable skill system
-- **Tools**: File operations, command execution, web search, etc.
-- **Message Bus**: Decoupled message bus for unified multi-channel processing
-- **Channels**: Adapters for different platforms (Telegram/WhatsApp/QQ)
-- **Cron**: Scheduled task system
-- **Providers**: Abstract layer for multiple LLM providers
-
-## Technology Stack
-
-### Core Framework
-
-| Component | Technology | Reason |
-|-----------|------------|--------|
-| Runtime | Tokio | Rust async standard, excellent performance |
-| CLI | Clap | Full-featured command-line parsing |
-| Config | serde_json | Simple and easy JSON format |
-| Logging | tracing | Modern logging framework |
-
-### LLM Integration
-
-| Provider | Protocol | Features |
-|----------|----------|----------|
-| MiniMax | OpenAI Compatible API | Fast access in China |
-| OpenRouter | OpenAI Compatible API | Aggregates multiple models |
-| Anthropic | Native API | Claude series |
-| OpenAI | OpenAI Compatible API | GPT series |
-| Groq | OpenAI Compatible API | Fast inference |
-| Gemini | Native API | Google's latest models |
-
-### Messaging Channels
-
-| Channel | Protocol | Notes |
-|---------|----------|-------|
-| Telegram | Bot API | Official Bot API |
-| WhatsApp | WebSocket | WA Bridge proxy |
-| QQ | OneBot v11 | go-cqhttp, etc. |
-
-### Storage
-
-| Type | Implementation | Purpose |
-|------|----------------|---------|
-| Config | JSON file | User configuration persistence |
-| Memory | Markdown file | Long-term memory |
-| Session | JSONL file | Conversation history |
-| Tasks | JSON file | Cron tasks |
-
-## Extension Development
-
-### Adding a New Channel
-
-1. Create a new file in `src/channels/`
-2. Implement `start_channel()` function
-3. Export in `channels/mod.rs`
-4. Add config struct in `config/mod.rs`
-
-### Adding a New Tool
-
-1. Define tool in `src/agent/tools/`
-2. Implement tool logic
-3. Register in `get_tool_definitions()`
-
-### Adding a New Provider
-
-1. Implement `LLMProvider` trait in `src/providers.rs`
-2. Add branch in `create_provider()`
 
 ## License
 

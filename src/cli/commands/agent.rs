@@ -7,9 +7,10 @@ use anyhow::Result;
 use std::io::{self, Write};
 
 pub const LOGO: &str = r#"
-    |\__/,|   (`\
-  _.|o o  |_   ) )
- -(((---(((--------
+        ()-()
+      .-(___)-.
+       _<   >_
+       \/   \/
 "#;
 
 /// Execute a single message with the agent

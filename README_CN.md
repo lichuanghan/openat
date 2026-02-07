@@ -10,12 +10,11 @@ Rust 实现的超轻量级个人 AI 助手
 
 ## 功能特性
 
-- **多模型支持**: OpenRouter、Anthropic Claude、OpenAI、Groq、Gemini、MiniMax
-- **多渠道支持**: Telegram、WhatsApp、QQ（通过 OneBot）
-- **工具集成**: 文件操作、shell 命令、网页搜索/抓取
+- **多模型支持**: MiniMax、DeepSeek、OpenRouter、Anthropic、OpenAI、Groq、Gemini、Zhipu、Moonshot、VLLM
+- **多渠道支持**: Telegram、WhatsApp、QQ（OneBot）、Discord、Feishu
+- **工具集成**: 文件操作、shell 命令、网页搜索/抓取、定时任务
 - **记忆系统**: 长期记忆和会话记忆
-- **定时任务**: 支持 Cron 表达式和消息推送
-- **会话管理**: JSON 格式的对话历史
+- **Agent**: 简单 CLI Agent 和完整功能执行器
 
 ## 快速开始
 
@@ -25,10 +24,12 @@ Rust 实现的超轻量级个人 AI 助手
 cargo build --release
 ```
 
+或使用预编译的二进制文件。
+
 ### 初始化
 
 ```bash
-cargo run -- onboard
+./target/release/openat onboard
 ```
 
 ### 配置
@@ -41,11 +42,17 @@ cargo run -- onboard
     "minimax": {
       "api_key": "你的API密钥",
       "api_base": "https://api.minimax.chat/v1"
+    },
+    "deepseek": {
+      "api_key": "你的API密钥",
+      "api_base": null
     }
   },
   "agents": {
     "defaults": {
-      "model": "minimax/MiniMax-M2.1"
+      "model": "minimax/MiniMax-M2.1",
+      "max_tokens": 4096,
+      "temperature": 0.7
     }
   }
 }
@@ -57,211 +64,188 @@ cargo run -- onboard
 
 ```bash
 # 发送单条消息
-cargo run -- agent "你好！"
+openat agent "你好！"
 
 # 交互模式
-cargo run -- agent
+openat agent
 ```
 
-### 渠道命令
+### CLI 命令
 
 ```bash
-# 查看渠道状态
-cargo run -- channel-status
+# 查看状态
+openat status
 
-# QQ 设置帮助
-cargo run -- channel-login qq
+# 渠道管理
+openat channel-status
+openat channel-login telegram
+openat channel-login qq
+
+# 网关模式（运行所有已启用的渠道）
+openat gateway
 ```
 
-### 网关模式
+## 支持的提供商
 
-启动所有已启用的渠道：
+| 提供商 | 环境变量 | 配置键 | 状态 |
+|--------|----------|--------|------|
+| MiniMax | `MINIMAX_API_KEY` | `minimax` | ✅ 已验证 |
+| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` | ✅ 已验证 |
+| OpenRouter | `OPENROUTER_API_KEY` | `openrouter` | 已就绪 |
+| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` | 已就绪 |
+| OpenAI | `OPENAI_API_KEY` | `openai` | 已就绪 |
+| Groq | `GROQ_API_KEY` | `groq` | 已就绪 |
+| Gemini | `GEMINI_API_KEY` | `gemini` | 已就绪 |
+| Zhipu | `ZHIPU_API_KEY` | `zhipu` | 已就绪 |
+| Moonshot | `MOONSHOT_API_KEY` | `moonshot` | 已就绪 |
+| VLLM | - | `vllm` | 已就绪 |
 
-```bash
-cargo run -- gateway
-```
+## 支持的渠道
 
-## 配置说明
+| 渠道 | 协议 | 状态 |
+|------|------|------|
+| Telegram | Bot API | 已就绪 |
+| WhatsApp | WebSocket Bridge | 已就绪 |
+| QQ | OneBot v11 | 已就绪 |
+| Discord | Bot API | 已就绪 |
+| Feishu | App Webhook | 已就绪 |
 
-### 模型提供商
+## 可用工具
 
-| 提供商 | 配置键 | 必需参数 |
-|--------|--------|----------|
-| MiniMax | `minimax` | `api_key` |
-| OpenRouter | `openrouter` | `api_key` |
-| Anthropic | `anthropic` | `api_key` |
-| OpenAI | `openai` | `api_key` |
-| Groq | `groq` | `api_key` |
-| Gemini | `gemini` | `api_key` |
-
-### 消息渠道
-
-#### Telegram
-
-```json
-"telegram": {
-  "enabled": true,
-  "token": "你的机器人Token",
-  "allowed_users": ["123456789"]
-}
-```
-
-#### WhatsApp
-
-```json
-"whatsapp": {
-  "enabled": true,
-  "bridge_url": "ws://localhost:3001"
-}
-```
-
-#### QQ（通过 OneBot）
-
-```json
-"qq": {
-  "enabled": true,
-  "api_url": "http://localhost:3000",
-  "event_url": "ws://localhost:3000",
-  "access_token": "",
-  "allowed_users": ["10001"]
-}
-```
-
-**注意**: QQ 渠道需要配合 OneBot v11 兼容的客户端使用，推荐 [go-cqhttp](https://github.com/Mrs4s/go-cqhttp)
-
-### 工具
-
-Agent 可用的工具：
-- `read_file`: 读取文件内容
-- `write_file`: 写入文件
-- `list_dir`: 列出目录内容
-- `exec`: 执行 shell 命令
-- `web_search`: 搜索网页
-- `web_fetch`: 获取网页内容
-
-### 定时任务
-
-```bash
-# 列出任务
-cargo run -- cron-list
-
-# 添加任务
-cargo run -- cron-add "daily-check" "早上好！" --every 86400
-
-# 删除任务
-cargo run -- cron-remove <任务ID>
-```
+| 工具 | 说明 |
+|------|------|
+| `read_file` | 读取文件内容 |
+| `write_file` | 写入文件到磁盘 |
+| `list_dir` | 列出目录内容 |
+| `exec` | 执行 shell 命令 |
+| `web_search` | 搜索网页 |
+| `web_fetch` | 获取网页内容 |
 
 ## 项目结构
 
 ```
 src/
-├── agent/          # Agent 实现
-│   ├── memory.rs  # 记忆系统
-│   ├── skills.rs  # 技能系统
-│   └── tools/     # 工具定义
-├── channels/       # 渠道实现
-│   ├── telegram.rs
-│   ├── whatsapp.rs
-│   └── qq.rs      # QQ（OneBot）
-├── cli.rs         # CLI 命令
-├── config/        # 配置模块
-├── cron.rs        # 任务调度
-├── heartbeat.rs   # 心跳监控
-├── providers.rs   # LLM 提供商
-├── session.rs     # 会话管理
-└── bus.rs         # 消息总线
+├── main.rs                 # 入口点
+├── cli/                    # CLI 命令
+│   ├── mod.rs
+│   └── commands/
+│       ├── agent.rs        # Agent 命令
+│       ├── channel.rs      # 渠道管理
+│       ├── cron.rs         # 定时任务
+│       └── gateway.rs       # 网关模式
+├── core/                   # 核心模块
+│   ├── agent/              # Agent 实现
+│   │   ├── simple.rs       # 简单 CLI agent
+│   │   ├── executor.rs     # 完整 agent（含工具）
+│   │   ├── memory.rs       # 记忆管理
+│   │   ├── skills.rs       # 技能系统
+│   │   └── context.rs      # 上下文构建器
+│   ├── bus/                # 消息总线
+│   ├── session/            # 会话管理
+│   └── scheduler/          # 定时调度器
+├── llm/                    # LLM 提供商
+│   ├── providers/          # 提供商实现
+│   │   ├── minimax.rs
+│   │   ├── deepseek.rs
+│   │   ├── openai.rs
+│   │   ├── anthropic.rs
+│   │   └── ...
+│   └── mod.rs
+├── channels/               # 渠道适配器
+│   ├── telegram/
+│   ├── whatsapp/
+│   ├── qq/
+│   ├── discord/
+│   └── feishu.rs
+├── tools/                  # 工具实现
+│   ├── filesystem.rs       # 文件操作
+│   ├── shell.rs             # Shell 命令
+│   ├── web_search.rs       # 网页搜索
+│   ├── fetch.rs            # URL 获取
+│   └── cron_tool.rs        # 定时任务
+├── config/                 # 配置模块
+├── types/                  # 类型定义
+└── heartbeat/              # 心跳监控
 ```
 
-## 架构设计
+## 代码统计
 
-### 核心组件
+- **源文件**: 50 个 Rust 文件
+- **总行数**: 8,309 行
+- **测试覆盖**: 57 个单元测试通过
+
+## 测试
+
+```bash
+# 运行所有测试
+cargo test
+
+# 库测试
+cargo test --lib
+
+# E2E 测试
+openat agent "你的消息"
+```
+
+## 配置指南
+
+### 环境变量
+
+可以使用环境变量代替配置文件：
+
+```bash
+export MINIMAX_API_KEY="你的密钥"
+export DEEPSEEK_API_KEY="你的密钥"
+```
+
+### 优先级顺序
+
+当配置了多个提供商时：
+1. 环境变量（优先检查）
+2. 配置文件值（按优先级顺序）
+
+提供商优先级：OpenRouter > Anthropic > OpenAI > Groq > Gemini > MiniMax > DeepSeek > Zhipu > Moonshot
+
+## Docker
+
+```bash
+# 构建
+docker build -t openat .
+
+# 运行
+docker run -d \
+  -e MINIMAX_API_KEY="你的密钥" \
+  -v ~/.openat:/home/openat/.openat \
+  -p 18790:18790 \
+  openat
+```
+
+或使用 docker-compose：
+
+```bash
+docker-compose up -d
+```
+
+## 架构
 
 ```
 ┌─────────────────────────────────────────────────────┐
-│                    CLI / Gateway                       │
+│                    CLI / 网关                          │
 ├─────────────────────────────────────────────────────┤
-│                      Agent                            │
+│                       Agent                           │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │   Memory    │  │   Skills    │  │   Tools     │  │
+│  │    记忆     │  │   技能    │  │   工具      │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  │
 ├─────────────────────────────────────────────────────┤
-│                   Message Bus                        │
+│                    消息总线                             │
 ├───────────────┬───────────────┬───────────────────────┤
-│   Telegram    │   WhatsApp   │         QQ            │
-│   Channel     │   Channel    │      (OneBot)        │
-└───────────────┴───────────────┴───────────────────────┘
+│    Telegram   │   WhatsApp   │         QQ            │
+│    渠道       │   渠道       │      (OneBot)         │
+├───────────────┴───────────────┴───────────────────────┤
+│                    LLM 提供商                          │
+│  MiniMax | DeepSeek | OpenAI | Anthropic | ...    │
+└─────────────────────────────────────────────────────┘
 ```
-
-### 模块说明
-
-- **Agent**: 核心对话引擎，处理用户输入、工具调用、记忆管理
-- **Memory**: 长期记忆（持久化）和短期记忆（会话内）
-- **Skills**: 可插拔的技能系统
-- **Tools**: 文件操作、命令执行、网页搜索等
-- **Message Bus**: 解耦的消息总线，支持多渠道统一处理
-- **Channels**: 适配不同消息平台（Telegram/WhatsApp/QQ）
-- **Cron**: 定时任务调度系统
-- **Providers**: 多模型提供商抽象层
-
-## 技术选型
-
-### 核心框架
-
-| 组件 | 技术 | 选型理由 |
-|------|------|----------|
-| 运行时 | Tokio | Rust 异步标准，性能优异 |
-| CLI | Clap | 功能完整的命令行解析 |
-| 配置 | serde_json | JSON 格式简单易用 |
-| 日志 | tracing | 现代化日志框架 |
-
-### LLM 集成
-
-| 提供商 | 协议 | 特点 |
-|--------|------|------|
-| MiniMax | OpenAI 兼容 API | 国内访问快 |
-| OpenRouter | OpenAI 兼容 API | 聚合多模型 |
-| Anthropic | 独立 API | Claude 系列 |
-| OpenAI | OpenAI 兼容 API | GPT 系列 |
-| Groq | OpenAI 兼容 API | 推理速度快 |
-| Gemini | 独立 API | Google 最新模型 |
-
-### 消息渠道
-
-| 渠道 | 协议 | 说明 |
-|------|------|------|
-| Telegram | Bot API | 官方 Bot API |
-| WhatsApp | WebSocket | WA Bridge 中转 |
-| QQ | OneBot v11 | go-cqhttp 等 |
-
-### 存储
-
-| 类型 | 实现 | 用途 |
-|------|------|------|
-| 配置 | JSON 文件 | 用户配置持久化 |
-| 记忆 | Markdown 文件 | 长期记忆 |
-| 会话 | JSONL 文件 | 对话历史 |
-| 任务 | JSON 文件 | Cron 任务 |
-
-## 扩展开发
-
-### 添加新渠道
-
-1. 在 `src/channels/` 下创建新文件
-2. 实现 `start_channel()` 函数
-3. 在 `channels/mod.rs` 中导出
-4. 在 `config/mod.rs` 中添加配置结构
-
-### 添加新工具
-
-1. 在 `src/agent/tools/` 中定义工具
-2. 实现工具逻辑
-3. 在 `get_tool_definitions()` 中注册
-
-### 添加新提供商
-
-1. 在 `src/providers.rs` 中实现 `LLMProvider` trait
-2. 在 `create_provider()` 中添加分支
 
 ## 许可证
 

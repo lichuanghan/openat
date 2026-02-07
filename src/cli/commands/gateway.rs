@@ -10,9 +10,10 @@ use crate::llm::create_provider;
 use anyhow::Result;
 
 pub const LOGO: &str = r#"
-    |\__/,|   (`\
-  _.|o o  |_   ) )
- -(((---(((--------
+        ()-()
+      .-(___)-.
+       _<   >_
+       \/   \/
 "#;
 
 pub async fn execute(port: u16) -> Result<()> {
