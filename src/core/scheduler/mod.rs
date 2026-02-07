@@ -149,7 +149,7 @@ fn parse_cron(expr: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>, String> {
 }
 
 /// Job manager - loads and persists scheduled jobs
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct JobManager {
     jobs_dir: PathBuf,
 }

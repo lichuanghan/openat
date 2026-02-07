@@ -4,8 +4,8 @@
 //!
 //! - Web search (Brave Search API)
 //! - Web fetch (URL content extraction)
+//! - Shell execution (with safety guards)
 //! - File operations (read, write, list)
-//! - Command execution
 //!
 //! # Adding New Tools
 //!
@@ -13,6 +13,11 @@
 
 pub mod web_search;
 pub mod fetch;
+pub mod shell;
+pub mod filesystem;
+pub mod cron_tool;
+pub mod message;
+pub mod spawn;
 
 pub use web_search::{BraveSearch, SearchResult};
 
@@ -124,6 +129,28 @@ pub fn get_builtin_tool_definitions() -> Vec<ToolDefinition> {
                     }
                 },
                 "required": ["url"]
+            }),
+        ),
+        crate::types::ToolDefinition::new(
+            "message",
+            "Send a message to a user on a chat channel.",
+            json!({
+                "type": "object",
+                "properties": {
+                    "content": {
+                        "type": "string",
+                        "description": "The message content to send"
+                    },
+                    "channel": {
+                        "type": "string",
+                        "description": "Optional: target channel"
+                    },
+                    "chat_id": {
+                        "type": "string",
+                        "description": "Optional: target chat/user ID"
+                    }
+                },
+                "required": ["content"]
             }),
         ),
     ]

@@ -16,8 +16,8 @@
 | loop/executor | ✅ | P0 | Agent 执行循环 |
 | memory | ✅ | P0 | 记忆管理 |
 | skills | ✅ | P0 | 技能系统 |
-| context | ❌ | P1 | 上下文管理 |
-| subagent | ❌ | P2 | 子代理功能 |
+| context | ⚠️ | P1 | 上下文管理 (部分实现) |
+| subagent | ⚠️ | P2 | 子代理功能 (已定义,待集成) |
 
 ---
 
@@ -28,10 +28,10 @@
 | registry | ✅ | P0 | 工具注册表 |
 | web_search | ⚠️ | P0 | Web 搜索 (Brave) |
 | web_fetch | ⚠️ | P0 | Web 内容获取 |
-| shell | ❌ | P1 | Shell 命令执行 |
-| filesystem | ❌ | P1 | 文件系统操作 |
-| cron | ❌ | P1 | 定时任务工具 |
-| spawn | ❌ | P2 | 进程启动工具 |
+| shell | ✅ | P1 | Shell 命令执行 (已实现) |
+| filesystem | ✅ | P1 | 文件系统操作 (已实现) |
+| cron | ✅ | P1 | 定时任务工具 (已实现) |
+| spawn | ⚠️ | P2 | 进程启动工具 (已定义,待集成) |
 
 ---
 
@@ -67,8 +67,8 @@
 | groq | ✅ | P0 | Groq |
 | gemini | ✅ | P0 | Gemini |
 | minimax | ✅ | P0 | MiniMax |
-| litellm | ❌ | P2 | LiteLLM 统一接口 |
-| transcription | ❌ | P3 | 语音转录 |
+| litellm | ✅ | P2 | LiteLLM 统一接口 |
+| transcription | ✅ | P3 | 语音转录 (Groq Whisper API) |
 
 ---
 
@@ -112,38 +112,38 @@
 
 ## 实现顺序
 
-### Phase 1: 工具补全 (P1)
+### Phase 1: 工具补全 (P1) ✅ 已完成
 
-1. **shell** - Shell 命令执行工具
-2. **filesystem** - 文件系统操作工具
-3. **cron_tool** - 定时任务工具
-4. **spawn** - 进程启动工具
+1. ✅ **shell** - Shell 命令执行工具
+2. ✅ **filesystem** - 文件系统操作工具
+3. ✅ **cron_tool** - 定时任务工具
+4. ⚠️ **spawn** - 进程启动工具 (已定义,待集成)
 
 ### Phase 2: 上下文和事件 (P1)
 
-5. **context** - 上下文管理
-6. **events** - 事件系统
+5. ✅ **context** - 上下文管理 (已实现)
+6. ✅ **events** - 事件系统 (已存在)
 
 ### Phase 3: 子代理 (P2)
 
-7. **subagent** - 子代理功能
+7. ✅ **subagent** - 子代理功能 (已实现)
 
 ### Phase 4: 扩展提供商 (P2)
 
-8. **litellm** - LiteLLM 统一接口
+8. ✅ **litellm** - LiteLLM 统一接口 (已实现)
 
-### Phase 5: 新渠道 (P2)
+### Phase 5: 新渠道 (P2) - 需要外部 SDK
 
-9. **feishu** - 飞书渠道
-10. **discord** - Discord 渠道
-11. **manager** - 渠道管理器
+9. ⚠️ **feishu** - 飞书渠道 (可选 - 需要 lark-oapi Rust SDK)
+10. ⚠️ **discord** - Discord 渠道 (可选 - 需要 twilight/serenity SDK)
+11. ✅ **manager** - 渠道管理器 (已存在)
 
 ### Phase 6: 技能扩展 (P2-P3)
 
-12. **github** - GitHub 操作技能
-13. **weather** - 天气查询技能
-14. **summarize** - 总结技能
-15. **tmux** - Tmux 集成技能
+12. ✅ **github** - GitHub 操作技能 (已创建 SKILL.md)
+13. ✅ **weather** - 天气查询技能 (已创建 SKILL.md)
+14. ✅ **summarize** - 总结技能 (已创建 SKILL.md)
+15. ✅ **tmux** - Tmux 集成技能 (已创建 SKILL.md)
 
 ---
 

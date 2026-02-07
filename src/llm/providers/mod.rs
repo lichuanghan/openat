@@ -3,16 +3,20 @@
 mod anthropic;
 mod gemini;
 mod groq;
+mod litellm;
 mod minimax;
 mod openai;
 mod openrouter;
+mod transcription;
 
 pub use anthropic::AnthropicProvider;
 pub use gemini::GeminiProvider;
 pub use groq::GroqProvider;
+pub use litellm::LiteLLMProvider;
 pub use minimax::MiniMaxProvider;
 pub use openai::OpenAIProvider;
 pub use openrouter::OpenRouterProvider;
+pub use transcription::GroqTranscriptionProvider;
 
 use crate::config::Config;
 use serde_json::Value;
