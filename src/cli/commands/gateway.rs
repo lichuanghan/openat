@@ -47,7 +47,7 @@ pub async fn execute(port: u16) -> Result<()> {
         discord_channel = Some(channel);
     }
 
-    println!("\n{}", LOGO);
+    //println!("\n{}", LOGO);
     println!("Gateway components initialized:");
     println!("  [-] Heartbeat: running");
     println!("  [-] Agent Executor: ready");
