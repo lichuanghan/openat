@@ -242,7 +242,7 @@ You have access to tools that you can use:
         let tool_defs_json: Vec<Value> = tools.iter().map(|t| t.to_json()).collect();
 
         let mut iterations = 0;
-        let max_iterations = 10;
+        let max_iterations = 30;
 
         while iterations < max_iterations {
             iterations += 1;
@@ -276,7 +276,9 @@ You have access to tools that you can use:
 
                     // Execute tools
                     for tool_call in &response.tool_calls {
+                        tracing::info!("Executing tool: {} with args: {}", tool_call.name, tool_call.arguments);
                         let result = self.execute_tool(&tool_call.name, &tool_call.arguments).await;
+                        tracing::info!("Tool result: {}", result);
                         messages_json.push(json!({
                             "role": "tool",
                             "tool_call_id": tool_call.id,
@@ -299,7 +301,16 @@ You have access to tools that you can use:
 
     /// Execute a tool.
     async fn execute_tool(&self, name: &str, arguments: &Value) -> String {
-        let args = if arguments.is_object() {
+        // Handle arguments that are wrapped in a string (common with some LLMs)
+        let args: HashMap<String, Value> = if arguments.is_string() {
+            // Try to parse as JSON string
+            let arg_str = arguments.as_str().unwrap_or("");
+            if arg_str.starts_with("{") {
+                serde_json::from_str(arg_str).unwrap_or_else(|_| HashMap::new())
+            } else {
+                HashMap::new()
+            }
+        } else if arguments.is_object() {
             arguments
                 .as_object()
                 .unwrap()
@@ -313,9 +324,18 @@ You have access to tools that you can use:
         match name {
             "read_file" => {
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    match fs::read_to_string(path).await {
+                    // Expand ~ to home directory
+                    let expanded_path = if path.starts_with("~") {
+                        match std::env::var("HOME") {
+                            Ok(home) => path.replace("~", &home),
+                            Err(_) => path.to_string(),
+                        }
+                    } else {
+                        path.to_string()
+                    };
+                    match fs::read_to_string(&expanded_path).await {
                         Ok(content) => content,
-                        Err(e) => format!("Error reading file: {}", e),
+                        Err(e) => format!("Error reading file {}: {}", expanded_path, e),
                     }
                 } else {
                     "Error: path parameter required".to_string()
@@ -326,12 +346,21 @@ You have access to tools that you can use:
                 let content = args.get("content").and_then(|v| v.as_str());
 
                 if let (Some(path), Some(content)) = (path, content) {
-                    if let Some(parent) = std::path::PathBuf::from(path).parent() {
+                    // Expand ~ to home directory
+                    let expanded_path = if path.starts_with("~") {
+                        match std::env::var("HOME") {
+                            Ok(home) => path.replace("~", &home),
+                            Err(_) => path.to_string(),
+                        }
+                    } else {
+                        path.to_string()
+                    };
+                    if let Some(parent) = std::path::PathBuf::from(&expanded_path).parent() {
                         let _ = fs::create_dir_all(parent).await;
                     }
-                    match fs::write(path, content).await {
-                        Ok(_) => format!("Successfully wrote {} bytes to {}", content.len(), path),
-                        Err(e) => format!("Error writing file: {}", e),
+                    match fs::write(&expanded_path, content).await {
+                        Ok(_) => format!("Successfully wrote {} bytes to {}", content.len(), expanded_path),
+                        Err(e) => format!("Error writing file {}: {}", expanded_path, e),
                     }
                 } else {
                     "Error: path and content parameters required".to_string()
@@ -339,19 +368,28 @@ You have access to tools that you can use:
             }
             "list_dir" => {
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    match fs::read_dir(path).await {
+                    // Expand ~ to home directory
+                    let expanded_path = if path.starts_with("~") {
+                        match std::env::var("HOME") {
+                            Ok(home) => path.replace("~", &home),
+                            Err(_) => path.to_string(),
+                        }
+                    } else {
+                        path.to_string()
+                    };
+                    match fs::read_dir(&expanded_path).await {
                         Ok(mut entries) => {
                             let mut items = Vec::new();
                             while let Some(entry) = entries.next_entry().await.unwrap_or(None) {
                                 items.push(entry.file_name().to_string_lossy().to_string());
                             }
                             if items.is_empty() {
-                                format!("Directory {} is empty", path)
+                                format!("Directory {} is empty", expanded_path)
                             } else {
                                 items.join("\n")
                             }
                         }
-                        Err(e) => format!("Error listing directory: {}", e),
+                        Err(e) => format!("Error listing directory {}: {}", expanded_path, e),
                     }
                 } else {
                     "Error: path parameter required".to_string()
@@ -369,7 +407,11 @@ You have access to tools that you can use:
                         Ok(output) => {
                             let stdout = String::from_utf8_lossy(&output.stdout);
                             let stderr = String::from_utf8_lossy(&output.stderr);
-                            format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
+                            if !stderr.is_empty() {
+                                format!("stdout:\n{}\nstderr:\n{}", stdout, stderr)
+                            } else {
+                                stdout.to_string()
+                            }
                         }
                         Err(e) => format!("Error executing command: {}", e),
                     }

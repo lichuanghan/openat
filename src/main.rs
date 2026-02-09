@@ -54,6 +54,11 @@ enum Commands {
     CronRemove { job_id: String },
     /// Enable/disable a job
     CronEnable { job_id: String, disable: bool },
+    /// Test Discord (send a message)
+    DiscordTest {
+        channel_id: String,
+        message: Option<String>,
+    },
     /// Show status
     Status,
 }
@@ -82,6 +87,10 @@ async fn main() -> Result<()> {
         }
         Commands::CronRemove { job_id } => cli::cron_remove(&job_id)?,
         Commands::CronEnable { job_id, disable } => cli::cron_enable(&job_id, disable)?,
+        Commands::DiscordTest { channel_id, message } => {
+            let content = message.unwrap_or_else(|| "Test message from openat!".to_string());
+            cli::discord_test(&channel_id, &content).await?
+        }
         Commands::Status => cli::status()?,
     }
 

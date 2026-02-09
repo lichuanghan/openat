@@ -7,6 +7,7 @@ pub use commands::{
     agent_interactive,
     channel_login, channel_status,
     cron_add, cron_enable, cron_list, cron_remove,
+    discord_test,
     gateway,
 };
 

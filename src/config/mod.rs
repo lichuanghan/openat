@@ -145,6 +145,7 @@ pub struct Channels {
     pub telegram: Telegram,
     pub whatsapp: WhatsApp,
     pub qq: QQ,
+    pub discord: Discord,
 }
 
 impl Default for Channels {
@@ -153,6 +154,7 @@ impl Default for Channels {
             telegram: Telegram::default(),
             whatsapp: WhatsApp::default(),
             qq: QQ::default(),
+            discord: Discord::default(),
         }
     }
 }
@@ -198,6 +200,28 @@ impl Default for QQ {
             event_url: "ws://localhost:3000".to_string(),
             access_token: String::new(),
             allowed_users: Vec::new(),
+        }
+    }
+}
+
+/// Discord channel configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Discord {
+    pub enabled: bool,
+    pub token: String,
+    pub allowed_users: Vec<String>,
+    pub gateway_url: String,
+    pub intents: i32,
+}
+
+impl Default for Discord {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            token: String::new(),
+            allowed_users: Vec::new(),
+            gateway_url: "wss://gateway.discord.gg/?v=10&encoding=json".to_string(),
+            intents: 37377, // GUILDS + GUILD_MESSAGES + DIRECT_MESSAGES + MESSAGE_CONTENT
         }
     }
 }
@@ -367,6 +391,7 @@ impl Config {
         self.channels.telegram.enabled
             || self.channels.whatsapp.enabled
             || self.channels.qq.enabled
+            || self.channels.discord.enabled
     }
 
     /// Check if web search is configured
