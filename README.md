@@ -1,38 +1,82 @@
 # openat
 
-Ultra-Lightweight Personal AI Assistant in Rust
+**Rust Personal AI Assistant** | Inspired by nanobot & openclawd | For Discord, Telegram, QQ, WhatsApp
 
 ```
-    |\__/,|   (`
-  _.|o o  |_   )
- -(((---(((--------
+        ()-()
+      .-(___)-.
+       _<   >_
+       \/   \/
 ```
+
+[![Rust](https://img.shields.io/badge/Rust-1.70+-orange?logo=rust)](https://www.rust-lang.org/)
+[![License](https://img.shields.io/badge/License-MIT-blue)](LICENSE)
+
+## What is openat?
+
+**openat** is an ultra-lightweight, high-performance **personal AI assistant** written in **Rust**. Inspired by **nanobot** and **openclawd**, it's designed for individuals and communities who want their own **AI bot** running on **social platforms**.
+
+This project draws inspiration from:
+- **nanobot** - Minimalist bot framework philosophy
+- **openclawd** - OpenCLAWD protocol and automation patterns
+
+Perfect for:
+- Running your **personal AI assistant** on Discord/Telegram/QQ
+- Building **nanobot**-style lightweight, focused bots
+- **OpenCLAWD** compatible automation workflows
+- **Social media** AI assistant development
+- Learning **Rust** async programming through bot development
 
 ## Features
 
-- **Multi-LLM Support**: MiniMax, DeepSeek, OpenRouter, Anthropic, OpenAI, Groq, Gemini, Zhipu, Moonshot, VLLM
-- **Multi-Channel**: Telegram, WhatsApp, QQ (via OneBot), Discord, Feishu
-- **Tools**: File operations, shell commands, web search/fetch, cron jobs
-- **Memory**: Long-term and session-based memory
-- **Agent**: Simple CLI agent and full-featured executor with tool support
+### Multi-Platform Integration
+- **Discord** - Bot API with Gateway/WebSocket support
+- **Telegram** - Bot API integration
+- **QQ** - OneBot v11 protocol (Go-CQHTTP compatible)
+- **WhatsApp** - WebSocket bridge support
+- **Feishu** - Lark webhook integration
+
+### Multi-LLM Provider Support
+- **MiniMax** (M2.1, Hailuo)
+- **DeepSeek** (Chat, Reasoner)
+- **OpenAI** (GPT-4o, GPT-4, GPT-3.5)
+- **Anthropic** (Claude 3.5, Claude 3)
+- **OpenRouter** (Unified access to 100+ models)
+- **Groq** (Fast inference)
+- **Google Gemini**
+- **Moonshot** (Kimi)
+- **Zhipu** (智谱AI)
+- **VLLM** (Self-hosted models)
+
+### Agent Capabilities
+- **Tool execution** - File I/O, shell commands, web search
+- **Memory system** - Session persistence, long-term memory
+- **Cron scheduling** - Automated tasks
+- **Web tools** - Brave Search, URL fetching
+- **Message bus architecture** - Decoupled, scalable design
 
 ## Quick Start
 
-### Installation
+### Prerequisites
+
+- **Rust** 1.70+ (`rustup update`)
+- **Git**
+
+### Build & Install
 
 ```bash
+# Clone the repository
+git clone https://github.com/yourusername/openat.git
+cd openat
+
+# Build with Cargo
 cargo build --release
-```
 
-Or use pre-built binary from releases.
-
-### Initialize
-
-```bash
+# Initialize configuration
 ./target/release/openat onboard
 ```
 
-### Configure
+### Configuration
 
 Edit `~/.openat/config.json`:
 
@@ -48,182 +92,65 @@ Edit `~/.openat/config.json`:
       "api_base": null
     }
   },
-  "agents": {
-    "defaults": {
-      "model": "minimax/MiniMax-M2.1",
-      "max_tokens": 4096,
-      "temperature": 0.7
+  "channels": {
+    "discord": {
+      "enabled": true,
+      "token": "your-discord-bot-token",
+      "allowed_users": ["your-user-id"]
     }
   }
 }
 ```
 
-## Usage
-
-### Chat with Agent
+### Run
 
 ```bash
-# Single message
-openat agent "Hello!"
+# Start the gateway (runs all enabled channels)
+./target/release/openat gateway
+
+# Or chat via CLI
+./target/release/openat agent "Hello, world!"
 
 # Interactive mode
-openat agent
+./target/release/openat agent
 ```
 
-### CLI Commands
+## Usage Examples
+
+### Discord Bot
+
+```bash
+# Configure in config.json, then:
+openat gateway
+```
+
+Mention your bot in Discord:
+```
+@openat帮我读取~/test.txt
+@openat今天天气怎么样
+@openat用中文介绍你自己
+```
+
+### CLI Agent
+
+```bash
+openat agent "用Python写一个快速排序"
+openat agent "解释一下Rust的Ownership"
+```
+
+### Channel Management
 
 ```bash
 # Check status
 openat status
 
-# Channel management
-openat channel-status
+# Login/link channels
 openat channel-login telegram
 openat channel-login qq
+openat channel-login discord
 
-# Gateway mode (run all enabled channels)
-openat gateway
-```
-
-## Supported Providers
-
-| Provider | Env Variable | Config Key | Status |
-|----------|--------------|------------|--------|
-| MiniMax | `MINIMAX_API_KEY` | `minimax` | ✅ Verified |
-| DeepSeek | `DEEPSEEK_API_KEY` | `deepseek` | ✅ Verified |
-| OpenRouter | `OPENROUTER_API_KEY` | `openrouter` | Ready |
-| Anthropic | `ANTHROPIC_API_KEY` | `anthropic` | Ready |
-| OpenAI | `OPENAI_API_KEY` | `openai` | Ready |
-| Groq | `GROQ_API_KEY` | `groq` | Ready |
-| Gemini | `GEMINI_API_KEY` | `gemini` | Ready |
-| Zhipu | `ZHIPU_API_KEY` | `zhipu` | Ready |
-| Moonshot | `MOONSHOT_API_KEY` | `moonshot` | Ready |
-| VLLM | - | `vllm` | Ready |
-
-## Supported Channels
-
-| Channel | Protocol | Status |
-|---------|----------|--------|
-| Telegram | Bot API | Ready |
-| WhatsApp | WebSocket Bridge | Ready |
-| QQ | OneBot v11 | Ready |
-| Discord | Bot API | Ready |
-| Feishu | App Webhook | Ready |
-
-## Available Tools
-
-| Tool | Description |
-|------|-------------|
-| `read_file` | Read file contents |
-| `write_file` | Write file to disk |
-| `list_dir` | List directory contents |
-| `exec` | Execute shell commands |
-| `web_search` | Search the web |
-| `web_fetch` | Fetch URL content |
-
-## Project Structure
-
-```
-src/
-├── main.rs                 # Entry point
-├── cli/                    # CLI commands
-│   ├── mod.rs
-│   └── commands/
-│       ├── agent.rs        # Agent command
-│       ├── channel.rs      # Channel management
-│       ├── cron.rs         # Cron jobs
-│       └── gateway.rs      # Gateway mode
-├── core/                   # Core modules
-│   ├── agent/              # Agent implementations
-│   │   ├── simple.rs       # Simple CLI agent
-│   │   ├── executor.rs     # Full agent with tools
-│   │   ├── memory.rs       # Memory management
-│   │   ├── skills.rs        # Skills system
-│   │   └── context.rs      # Context builder
-│   ├── bus/                # Message bus
-│   ├── session/            # Session management
-│   └── scheduler/          # Cron scheduler
-├── llm/                    # LLM providers
-│   ├── providers/          # Provider implementations
-│   │   ├── minimax.rs
-│   │   ├── deepseek.rs
-│   │   ├── openai.rs
-│   │   ├── anthropic.rs
-│   │   └── ...
-│   └── mod.rs
-├── channels/              # Channel adapters
-│   ├── telegram/
-│   ├── whatsapp/
-│   ├── qq/
-│   ├── discord/
-│   └── feishu.rs
-├── tools/                 # Tool implementations
-│   ├── filesystem.rs       # File operations
-│   ├── shell.rs            # Shell commands
-│   ├── web_search.rs       # Web search
-│   ├── fetch.rs            # URL fetch
-│   └── cron_tool.rs        # Cron jobs
-├── config/                 # Configuration
-├── types/                  # Type definitions
-└── heartbeat/              # Heartbeat monitor
-```
-
-## Code Statistics
-
-- **Source Files**: 50 Rust files
-- **Total Lines**: 8,309 lines
-- **Test Coverage**: 57 unit tests passing
-
-## Testing
-
-```bash
-# Run all tests
-cargo test
-
-# Run with coverage
-cargo test --lib
-
-# E2E testing with provider
-openat agent "Your message"
-```
-
-## Configuration Guide
-
-### Environment Variables
-
-You can use environment variables instead of config file:
-
-```bash
-export MINIMAX_API_KEY="your-key"
-export DEEPSEEK_API_KEY="your-key"
-```
-
-### Priority Order
-
-When multiple providers are configured:
-1. Environment variables (checked first)
-2. Config file values (in priority order)
-
-Provider priority: OpenRouter > Anthropic > OpenAI > Groq > Gemini > MiniMax > DeepSeek > Zhipu > Moonshot
-
-## Docker
-
-```bash
-# Build
-docker build -t openat .
-
-# Run
-docker run -d \
-  -e MINIMAX_API_KEY="your-key" \
-  -v ~/.openat:/home/openat/.openat \
-  -p 18790:18790 \
-  openat
-```
-
-Or use docker-compose:
-
-```bash
-docker-compose up -d
+# List scheduled jobs
+openat cron-list
 ```
 
 ## Architecture
@@ -232,21 +159,130 @@ docker-compose up -d
 ┌─────────────────────────────────────────────────────┐
 │                    CLI / Gateway                       │
 ├─────────────────────────────────────────────────────┤
-│                      Agent                             │
+│                      Agent Executor                     │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  │
-│  │   Memory    │  │   Skills   │  │   Tools     │  │
+│  │   Memory    │  │   Skills    │  │   Tools     │  │
 │  └─────────────┘  └─────────────┘  └─────────────┘  │
 ├─────────────────────────────────────────────────────┤
-│                   Message Bus                          │
+│                   Message Bus (Tokio)                   │
 ├───────────────┬───────────────┬───────────────────────┤
-│   Telegram    │   WhatsApp    │         QQ            │
-│   Channel     │   Channel     │      (OneBot)         │
+│   Discord    │   Telegram    │         QQ           │
+│   Gateway    │   Bot API     │      (OneBot)        │
 ├───────────────┴───────────────┴───────────────────────┤
-│                      LLM Providers                      │
-│  MiniMax | DeepSeek | OpenAI | Anthropic | ...       │
+│              LLM Providers (MiniMax, DeepSeek...)      │
 └─────────────────────────────────────────────────────┘
 ```
 
+### Key Components
+
+| Component | Description | Technology |
+|-----------|-------------|------------|
+| **Message Bus** | Decoupled async messaging | Tokio broadcast |
+| **Agent Executor** | Tool-augmented LLM agent | Async Rust |
+| **Channel Adapters** | Platform integrations | WebSocket/HTTP |
+| **LLM Providers** | Model abstraction layer | OpenAI-compatible API |
+
+## Available Tools
+
+| Tool | Description | Example |
+|------|-------------|---------|
+| `read_file` | Read file contents | `read_file(path="~/notes.md")` |
+| `write_file` | Write to files | `write_file(path="log.txt", content="...")` |
+| `list_dir` | Directory listing | `list_dir(path="/home")` |
+| `exec` | Shell commands | `exec(cmd="ls -la")` |
+| `web_search` | Web search | `web_search(query="Rust 2024 news")` |
+| `web_fetch` | URL content | `web_fetch(url="https://...")` |
+
+## Docker Deployment
+
+```bash
+# Build image
+docker build -t openat .
+
+# Run container
+docker run -d \
+  -e MINIMAX_API_KEY="your-key" \
+  -e DEEPSEEK_API_KEY="your-key" \
+  -v ~/.openat:/home/openat/.openat \
+  -p 18790:18790 \
+  openat
+```
+
+Or use docker-compose:
+```bash
+docker-compose up -d
+```
+
+## Project Structure
+
+```
+openat/
+├── src/
+│   ├── main.rs              # Entry point
+│   ├── cli/                  # CLI commands (Clap)
+│   │   ├── agent.rs         # Agent interactions
+│   │   ├── gateway.rs       # Gateway mode
+│   │   ├── cron.rs          # Cron management
+│   │   └── commands/        # Command modules
+│   ├── core/                 # Core framework
+│   │   ├── agent/           # Agent logic
+│   │   ├── bus/             # Message bus
+│   │   ├── scheduler/       # Task scheduling
+│   │   └── session/         # Session management
+│   ├── channels/             # Platform adapters
+│   │   ├── discord/         # Discord bot
+│   │   ├── telegram/        # Telegram bot
+│   │   ├── qq/              # OneBot/QQ
+│   │   ├── whatsapp/        # WhatsApp bridge
+│   │   └── feishu/          # Feishu/Lark
+│   ├── llm/                  # LLM providers
+│   │   ├── providers/       # Provider implementations
+│   │   │   ├── minimax.rs   # MiniMax
+│   │   │   ├── deepseek.rs  # DeepSeek
+│   │   │   ├── openai.rs    # OpenAI
+│   │   │   └── anthropic.rs # Anthropic
+│   │   └── mod.rs
+│   ├── tools/                # Tool system
+│   │   ├── filesystem.rs    # File I/O
+│   │   ├── shell.rs         # Shell execution
+│   │   ├── web_search.rs   # Web search
+│   │   └── cron_tool.rs     # Cron tasks
+│   ├── config/               # Configuration
+│   ├── types/                # Type definitions
+│   └── heartbeat/            # Health monitoring
+├── Cargo.toml               # Rust package manifest
+├── Dockerfile               # Container build
+└── docker-compose.yml      # Orchestration
+```
+
+## Code Statistics
+
+- **Language**: Rust (async/await, Tokio runtime)
+- **Source Files**: 50+ Rust modules
+- **Lines of Code**: ~8,300
+- **Tests**: 57+ unit tests
+- **Dependencies**: Tokio, Clap, reqwest, serde, tracing
+
+## Related & Inspired By
+
+- **nanobot** - The minimalist bot philosophy that inspired this project
+- **openclawd** - OpenCLAWD automation protocols and patterns
+- **OneBot** - QQ bot protocol standard (go-cqhttp)
+- **OpenAI** - API design inspiration
+- **Anthropic** - Claude integration patterns
+
 ## License
 
-MIT
+MIT License - feel free to use, modify, and distribute.
+
+## Contributing
+
+PRs welcome! This is a learning/fork-friendly project for:
+- **Rust** beginners exploring async programming
+- **Bot** developers building social integrations
+- **AI** enthusiasts experimenting with LLM agents
+- **Automation** engineers creating workflows
+
+---
+
+**Built with ❤️ in Rust** | Personal AI | nanobot inspired | openclawd ready |Lightweight | Fast | Reliable

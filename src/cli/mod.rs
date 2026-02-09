@@ -16,9 +16,10 @@ use anyhow::Result;
 use std::path::Path;
 
 pub const LOGO: &str = r#"
-    |\__/,|   (`\
-  _.|o o  |_   ) )
- -(((---(((--------
+        ()-()
+      .-(___)-.
+       _<   >_
+       \/   \/
 "#;
 
 /// Initialize configuration and workspace
