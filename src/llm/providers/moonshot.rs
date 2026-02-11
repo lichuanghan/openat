@@ -1,21 +1,26 @@
 //! Moonshot (月之暗面) provider - Kimi API.
 
+use crate::llm::providers::openai_compat::OpenAICompatConfig;
 use crate::types::LLMResponse;
 use crate::llm::providers::LLMProvider;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// Moonshot (月之暗面) provider
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MoonshotProvider {
-    api_key: String,
-    api_base: String,
+    config: OpenAICompatConfig,
+    default_model: String,
 }
 
 impl MoonshotProvider {
     pub fn new(api_key: String, api_base: Option<String>) -> Self {
         Self {
-            api_key,
-            api_base: api_base.unwrap_or_else(|| "https://api.moonshot.cn/v1".to_string()),
+            config: OpenAICompatConfig::new(
+                api_key,
+                api_base.unwrap_or_else(|| "https://api.moonshot.cn/v1".to_string()),
+                "moonshot",
+            ).with_header("Content-Type", "application/json".to_string()),
+            default_model: "moonshot-v1-8k".to_string(),
         }
     }
 }
@@ -28,79 +33,21 @@ impl LLMProvider for MoonshotProvider {
         model: &str,
         tools: &[Value],
     ) -> Result<LLMResponse, String> {
-        let client = reqwest::Client::new();
-
-        // Moonshot uses moonshot-v1 as default model
-        let model_name = if model.is_empty()
-            || model.starts_with("moonshot-")
-            || model.starts_with("kimi") {
-            "moonshot-v1-8k".to_string()
+        let model_name = if model.is_empty() || model.starts_with("moonshot-") || model.starts_with("kimi") {
+            self.default_model.clone()
         } else {
             model.to_string()
         };
-
-        let body = json!({
-            "model": model_name,
-            "messages": messages,
-            "tools": tools,
-            "tool_choice": if tools.is_empty() { json!(null) } else { json!("auto") }
-        });
-
-        let response = client
-            .post(&format!("{}/chat/completions", self.api_base))
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| format!("Request failed: {}", e))?;
-
-        if !response.status().is_success() {
-            let error = response.text().await.unwrap_or_default();
-            return Err(format!("Moonshot API error: {}", error));
-        }
-
-        parse_response(response).await
+        self.config.chat_impl(messages, &model_name, tools).await
     }
 
     fn name(&self) -> &str {
-        "moonshot"
+        self.config.name
     }
 
     fn api_base(&self) -> &str {
-        &self.api_base
+        &self.config.api_base
     }
-}
-
-async fn parse_response(response: reqwest::Response) -> Result<LLMResponse, String> {
-    let response_json: Value = response
-        .json()
-        .await
-        .map_err(|e| format!("Parse error: {}", e))?;
-
-    let choice = &response_json["choices"][0];
-    let content = choice["message"]["content"].as_str().map(|s| s.to_string());
-
-    let tool_calls: Vec<crate::types::ToolCall> = if let Some(tc_array) = choice["message"]["tool_calls"].as_array() {
-        tc_array.iter().map(|tc| crate::types::ToolCall {
-            id: tc["id"].as_str().unwrap_or("").to_string(),
-            name: tc["function"]["name"].as_str().unwrap_or("").to_string(),
-            arguments: tc["function"]["arguments"].clone(),
-        }).collect()
-    } else {
-        vec![]
-    };
-
-    let finish_reason = choice["finish_reason"]
-        .as_str()
-        .unwrap_or("stop")
-        .to_string();
-
-    Ok(LLMResponse {
-        content,
-        tool_calls,
-        finish_reason,
-    })
 }
 
 #[cfg(test)]
@@ -111,7 +58,7 @@ mod tests {
     fn test_moonshot_provider_default() {
         let provider = MoonshotProvider::new("test-key".to_string(), None);
         assert_eq!(provider.name(), "moonshot");
-        assert_eq!(provider.api_base, "https://api.moonshot.cn/v1");
+        assert_eq!(provider.api_base(), "https://api.moonshot.cn/v1");
     }
 
     #[test]
@@ -120,6 +67,6 @@ mod tests {
             "test-key".to_string(),
             Some("https://custom.api.com".to_string())
         );
-        assert_eq!(provider.api_base, "https://custom.api.com");
+        assert_eq!(provider.api_base(), "https://custom.api.com");
     }
 }

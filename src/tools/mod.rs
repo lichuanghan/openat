@@ -18,6 +18,8 @@ pub mod filesystem;
 pub mod cron_tool;
 pub mod message;
 pub mod spawn;
+pub mod html;
+pub mod macros;
 
 pub use web_search::{BraveSearch, SearchResult};
 
@@ -154,23 +156,4 @@ pub fn get_builtin_tool_definitions() -> Vec<ToolDefinition> {
             }),
         ),
     ]
-}
-
-/// Simple HTML to text extraction
-pub fn extract_text(html: &str) -> String {
-    let mut text = String::new();
-    let mut in_tag = false;
-
-    for c in html.chars() {
-        if c == '<' {
-            in_tag = true;
-        } else if c == '>' {
-            in_tag = false;
-        } else if !in_tag {
-            text.push(c);
-        }
-    }
-
-    // Clean up whitespace
-    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }

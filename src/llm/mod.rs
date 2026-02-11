@@ -8,11 +8,10 @@
 //! - Groq (Fast inference)
 //! - Gemini (Google)
 //! - MiniMax (Chinese LLM)
-//! - LiteLLM (Unified multi-provider)
 
 pub mod providers;
 
 pub use providers::{
     create_provider, AnthropicProvider, GeminiProvider, GroqProvider,
-    LLMProvider, LiteLLMProvider, MiniMaxProvider, OpenAIProvider, OpenRouterProvider,
+    LLMProvider, MiniMaxProvider, OpenAIProvider, OpenRouterProvider,
 };

@@ -101,7 +101,7 @@ impl BraveSearch {
             .map_err(|e| format!("Parse error: {}", e))?;
 
         // Simple HTML to text extraction
-        let text = super::extract_text(&html);
+        let text = crate::tools::html::extract_text(&html);
         Ok(text)
     }
 }

@@ -3,6 +3,7 @@ pub mod feishu;
 pub mod telegram;
 pub mod whatsapp;
 pub mod qq;
+pub mod common;
 
 use crate::core::bus::MessageBus;
 use crate::config::Config;

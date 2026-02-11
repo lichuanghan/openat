@@ -4,20 +4,21 @@ mod anthropic;
 mod deepseek;
 mod gemini;
 mod groq;
-mod litellm;
 mod minimax;
 mod moonshot;
 mod openai;
+mod openai_compat;
 mod openrouter;
 mod transcription;
 mod vllm;
 mod zhipu;
 
+pub use openai_compat::OpenAICompatConfig;
+
 pub use anthropic::AnthropicProvider;
 pub use deepseek::DeepSeekProvider;
 pub use gemini::GeminiProvider;
 pub use groq::GroqProvider;
-pub use litellm::LiteLLMProvider;
 pub use minimax::MiniMaxProvider;
 pub use moonshot::MoonshotProvider;
 pub use openai::OpenAIProvider;
@@ -47,73 +48,40 @@ pub trait LLMProvider: Send + Sync {
     fn api_base(&self) -> &str;
 }
 
-/// Get API key from environment variable or config
-fn get_api_key_from_env(name: &str, config_key: &str, config: &Config) -> Option<String> {
-    // Check environment variable first
-    if let Ok(key) = std::env::var(name) {
-        if !key.is_empty() {
-            return Some(key);
-        }
-    }
-    // Fall back to config
-    let key = match config_key {
-        "openrouter" => &config.providers.openrouter.api_key,
-        "anthropic" => &config.providers.anthropic.api_key,
-        "openai" => &config.providers.openai.api_key,
-        "groq" => &config.providers.groq.api_key,
-        "gemini" => &config.providers.gemini.api_key,
-        "minimax" => &config.providers.minimax.api_key,
-        "deepseek" => &config.providers.deepseek.api_key,
-        "zhipu" => &config.providers.zhipu.api_key,
-        "moonshot" => &config.providers.moonshot.api_key,
-        "vllm" => &config.providers.vllm.api_key,
-        _ => return None,
-    };
-    if !key.is_empty() {
-        Some(key.clone())
-    } else {
-        None
-    }
+/// Get API key from env or config - helper function
+fn get_api_key(env_key: &str, config: &Config) -> Option<String> {
+    std::env::var(env_key).ok().filter(|k| !k.is_empty())
 }
 
 /// Create a provider based on configuration priority
 pub fn create_provider(config: &Config) -> Box<dyn LLMProvider> {
-    // Debug: print api key status
-    tracing::debug!("openrouter api_key empty: {}", config.providers.openrouter.api_key.is_empty());
-    tracing::debug!("anthropic api_key empty: {}", config.providers.anthropic.api_key.is_empty());
-    tracing::debug!("openai api_key empty: {}", config.providers.openai.api_key.is_empty());
-    tracing::debug!("groq api_key empty: {}", config.providers.groq.api_key.is_empty());
-    tracing::debug!("gemini api_key empty: {}", config.providers.gemini.api_key.is_empty());
-    tracing::debug!("minimax api_key empty: {}", config.providers.minimax.api_key.is_empty());
-    tracing::debug!("minimax api_key: {}", if config.providers.minimax.api_key.len() > 10 { &config.providers.minimax.api_key[..10] } else { &config.providers.minimax.api_key });
-
     // Priority: OpenRouter > Anthropic > OpenAI > Groq > Gemini > MiniMax > DeepSeek > Zhipu > Moonshot
-    if let Some(key) = get_api_key_from_env("OPENROUTER_API_KEY", "openrouter", config) {
+    if let Some(key) = get_api_key("OPENROUTER_API_KEY", config) {
         tracing::debug!("Using OpenRouter from env");
         return Box::new(OpenRouterProvider::new(key));
     }
-    if let Some(key) = get_api_key_from_env("ANTHROPIC_API_KEY", "anthropic", config) {
+    if let Some(key) = get_api_key("ANTHROPIC_API_KEY", config) {
         return Box::new(AnthropicProvider::new(key));
     }
-    if let Some(key) = get_api_key_from_env("OPENAI_API_KEY", "openai", config) {
+    if let Some(key) = get_api_key("OPENAI_API_KEY", config) {
         return Box::new(OpenAIProvider::new(key, config.providers.openai.api_base.clone()));
     }
-    if let Some(key) = get_api_key_from_env("GROQ_API_KEY", "groq", config) {
+    if let Some(key) = get_api_key("GROQ_API_KEY", config) {
         return Box::new(GroqProvider::new(key));
     }
-    if let Some(key) = get_api_key_from_env("GEMINI_API_KEY", "gemini", config) {
+    if let Some(key) = get_api_key("GEMINI_API_KEY", config) {
         return Box::new(GeminiProvider::new(key));
     }
-    if let Some(key) = get_api_key_from_env("MINIMAX_API_KEY", "minimax", config) {
+    if let Some(key) = get_api_key("MINIMAX_API_KEY", config) {
         return Box::new(MiniMaxProvider::new(key));
     }
-    if let Some(key) = get_api_key_from_env("DEEPSEEK_API_KEY", "deepseek", config) {
+    if let Some(key) = get_api_key("DEEPSEEK_API_KEY", config) {
         return Box::new(DeepSeekProvider::new(key, None));
     }
-    if let Some(key) = get_api_key_from_env("ZHIPU_API_KEY", "zhipu", config) {
+    if let Some(key) = get_api_key("ZHIPU_API_KEY", config) {
         return Box::new(zhipu::ZhipuProvider::new(key, None));
     }
-    if let Some(key) = get_api_key_from_env("MOONSHOT_API_KEY", "moonshot", config) {
+    if let Some(key) = get_api_key("MOONSHOT_API_KEY", config) {
         return Box::new(moonshot::MoonshotProvider::new(key, None));
     }
 
@@ -140,7 +108,7 @@ pub fn create_provider(config: &Config) -> Box<dyn LLMProvider> {
     } else if !config.providers.moonshot.api_key.is_empty() {
         Box::new(moonshot::MoonshotProvider::new(config.providers.moonshot.api_key.clone(), None))
     } else {
-        // No provider configured - return a dummy provider that returns an error
+        // No provider configured
         Box::new(OpenRouterProvider::new(String::new()))
     }
 }

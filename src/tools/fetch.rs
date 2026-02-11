@@ -3,6 +3,7 @@
 //! Uses HTML parsing for content extraction.
 
 use crate::config::Config;
+use crate::tools::html::{convert_to_markdown, extract_title, is_html, strip_tags};
 use reqwest;
 use std::time::Duration;
 
@@ -132,101 +133,10 @@ fn validate_url(url: &str) -> (bool, String) {
     }
 }
 
-/// Check if content looks like HTML
-fn is_html(content: &str) -> bool {
-    let trimmed = content.trim();
-    trimmed.starts_with("<!doctype") || trimmed.starts_with("<html") || trimmed.starts_with("<head")
-}
-
-/// Extract title from HTML
-fn extract_title(html: &str) -> Option<String> {
-    let title_pattern = regex::Regex::new(r"<title[^>]*>([^<]+)</title>").ok()?;
-    title_pattern.captures(html).and_then(|cap| {
-        cap.get(1).map(|m| {
-            strip_tags(m.as_str().trim())
-                .replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-        })
-    })
-}
-
 /// Format JSON for display
 fn format_json(json: &str) -> String {
     match serde_json::from_str::<serde_json::Value>(json) {
         Ok(value) => serde_json::to_string_pretty(&value).unwrap_or(json.to_string()),
         Err(_) => json.to_string(),
     }
-}
-
-/// Convert content to markdown-like format
-fn convert_to_markdown(content: &str, title: &str) -> String {
-    let mut text = content.to_string();
-
-    // Convert headings (simple h1-h6 patterns)
-    let heading_pattern = regex::Regex::new(r"(?m)^#{1,6}\s+(.+)$").unwrap();
-    text = heading_pattern.replace_all(&text, |caps: &regex::Captures| {
-        format!("## {}", caps.get(1).map_or("", |m| m.as_str()))
-    }).to_string();
-
-    // Convert bullet lists
-    let list_pattern = regex::Regex::new(r"(?m)^[\*\-\+]\s+(.+)$").unwrap();
-    text = list_pattern.replace_all(&text, "- $1").to_string();
-
-    // Convert numbered lists
-    let num_pattern = regex::Regex::new(r"(?m)^\d+\.\s+(.+)$").unwrap();
-    text = num_pattern.replace_all(&text, "1. $1").to_string();
-
-    // Convert links [text](url)
-    let link_pattern = regex::Regex::new(r"\[([^\]]+)\]\(([^)]+)\)").unwrap();
-    text = link_pattern.replace_all(&text, "$1: $2").to_string();
-
-    text
-}
-
-/// Strip HTML tags
-fn strip_tags(html: &str) -> String {
-    let mut text = String::new();
-    let mut in_tag = false;
-    let mut script_style = false;
-
-    for c in html.chars() {
-        if c == '<' {
-            in_tag = true;
-            // Check if we're entering script or style tag
-            let lower = html[html.len().saturating_sub(20)..]
-                .to_lowercase();
-            if lower.contains("<script") || lower.contains("<style") {
-                script_style = true;
-            }
-        } else if c == '>' {
-            in_tag = false;
-            if script_style && (c == 's' || c == 'S' || c == '/' || c == 't' || c == 'T') {
-                // Check if we're exiting script or style tag
-                let recent: String = text.chars().rev().take(20).collect();
-                if recent.contains("script") || recent.contains("style") {
-                    script_style = false;
-                }
-            }
-        } else if !in_tag && !script_style {
-            text.push(c);
-        }
-    }
-
-    // Normalize whitespace
-    let re = regex::Regex::new(r"[ \t]+").unwrap();
-    text = re.replace_all(&text, " ").to_string();
-    let re = regex::Regex::new(r"\n{3,}").unwrap();
-    text = re.replace_all(&text, "\n\n").to_string();
-
-    // Decode common HTML entities
-    text = text
-        .replace("&nbsp;", " ")
-        .replace("&amp;", "&")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&apos;", "'");
-
-    text.trim().to_string()
 }

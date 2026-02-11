@@ -4,6 +4,7 @@
 //! to Discord's Gateway via WebSocket and handles messages.
 
 use crate::channels::Channel;
+use crate::channels::common::HasAllowedUsers;
 use crate::config::Discord as DiscordConfig;
 use crate::core::bus::MessageBus;
 use crate::types::{InboundMessage, OutboundMessage};
@@ -366,12 +367,30 @@ impl DiscordChannel {
         }
     }
 
-    /// Get gateway URL from Discord API
+    /// Get gateway URL - try API first, fallback to default
     async fn get_gateway_url(&self) -> Result<String> {
+        // Check if token is configured
+        if self.config.token.is_empty() {
+            warn!("Discord token not configured");
+            anyhow::bail!("Discord token not configured");
+        }
+
+        // Try to get from API first
         match Self::get_gateway_url_internal(&self.config.token).await {
-            Ok(Some(url)) => Ok(url),
-            Ok(None) => anyhow::bail!("Failed to get gateway URL"),
-            Err(e) => Err(e),
+            Ok(Some(url)) => {
+                info!("Got gateway URL from Discord API");
+                Ok(url)
+            }
+            Ok(None) => {
+                // API failed, use default
+                warn!("Failed to get gateway URL from API, using default");
+                Ok(self.config.gateway_url.clone())
+            }
+            Err(e) => {
+                // Network error, use default
+                warn!("Gateway URL API error: {}, using default", e);
+                Ok(self.config.gateway_url.clone())
+            }
         }
     }
 
@@ -590,7 +609,7 @@ mod tests {
 
     #[test]
     fn test_discord_config_default() {
-        let config = DiscordConfig::default();
+        let config = DiscordConfig::default_with_gateway();
         assert!(!config.enabled);
         assert!(config.token.is_empty());
         assert_eq!(config.gateway_url, "wss://gateway.discord.gg/?v=10&encoding=json");
@@ -599,14 +618,14 @@ mod tests {
 
     #[test]
     fn test_discord_channel_is_enabled() {
-        let config = DiscordConfig::default();
+        let config = DiscordConfig::default_with_gateway();
         let channel = DiscordChannel::new(config.clone());
         assert!(!channel.is_enabled());
 
         let config_enabled = DiscordConfig {
             enabled: true,
             token: "test-token".to_string(),
-            ..DiscordConfig::default()
+            ..DiscordConfig::default_with_gateway()
         };
         let channel_enabled = DiscordChannel::new(config_enabled);
         assert!(channel_enabled.is_enabled());
@@ -616,7 +635,7 @@ mod tests {
     fn test_discord_is_allowed() {
         let config = DiscordConfig {
             allowed_users: vec!["123".to_string(), "456".to_string()],
-            ..DiscordConfig::default()
+            ..DiscordConfig::default_with_gateway()
         };
         let channel = DiscordChannel::new(config.clone());
 
@@ -624,7 +643,7 @@ mod tests {
         assert!(allowed_users_check(&config, "456"));
         assert!(!allowed_users_check(&config, "789"));
 
-        let config_empty = DiscordConfig::default();
+        let config_empty = DiscordConfig::default_with_gateway();
         assert!(allowed_users_check(&config_empty, "anyone"));
     }
 
