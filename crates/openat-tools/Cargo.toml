@@ -1,0 +1,17 @@
+[package]
+name = "openat-tools"
+version = "0.1.0"
+edition = "2021"
+description = "Tool framework for openat"
+authors = ["openat developers"]
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+reqwest = { workspace = true }
+regex = { workspace = true }
+urlencoding = "2.1"
+openat-types = { path = "../openat-types" }
+openat-config = { path = "../openat-config" }

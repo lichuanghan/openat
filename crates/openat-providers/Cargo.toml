@@ -1,0 +1,13 @@
+[package]
+name = "openat-providers"
+version = "0.1.0"
+edition = "2021"
+description = "LLM providers for openat"
+authors = ["openat developers"]
+
+[dependencies]
+async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+reqwest = { workspace = true }
+openat-types = { path = "../openat-types" }

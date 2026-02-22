@@ -1,0 +1,11 @@
+[package]
+name = "openat-types"
+version = "0.1.0"
+edition = "2021"
+description = "Shared types for openat"
+authors = ["openat developers"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }

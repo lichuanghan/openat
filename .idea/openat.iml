@@ -4,6 +4,15 @@
     <content url="file://$MODULE_DIR$">
       <sourceFolder url="file://$MODULE_DIR$/examples" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-agent/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-channels/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-common/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-config/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-providers/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-runtime/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-tools/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-types/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

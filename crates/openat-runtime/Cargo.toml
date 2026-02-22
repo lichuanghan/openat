@@ -1,0 +1,13 @@
+[package]
+name = "openat-runtime"
+version = "0.1.0"
+edition = "2021"
+description = "Runtime core for openat"
+authors = ["openat developers"]
+
+[dependencies]
+tokio = { workspace = true, features = ["sync", "macros"] }
+tracing = { workspace = true }
+futures-util = { workspace = true }
+anyhow = { workspace = true }
+openat-types = { path = "../openat-types" }

@@ -1,0 +1,12 @@
+[package]
+name = "openat-config"
+version = "0.1.0"
+edition = "2021"
+description = "Configuration management for openat"
+authors = ["openat developers"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+anyhow = { workspace = true }
