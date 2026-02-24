@@ -1,162 +1,94 @@
-# Openat 开发 TODO 列表
+# OpenAT 开发 TODO 列表
 
-> 对比 Python nanobot 版本，列出缺失功能并逐步实现
+> 项目当前状态和待办事项
 
 ## 状态说明
 - ✅ 已完成
-- ⚠️ 部分完成
+- ⚠️ 部分完成 / 测试中
 - ❌ 未实现
 
 ---
 
-## Agent 模块
+## 核心模块
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| loop/executor | ✅ | P0 | Agent 执行循环 |
-| memory | ✅ | P0 | 记忆管理 |
-| skills | ✅ | P0 | 技能系统 |
-| context | ✅ | P1 | 上下文管理 |
-| subagent | ✅ | P2 | 子代理功能 |
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Agent Executor | ✅ | 消息处理、工具调用循环 |
+| MessageBus | ✅ | 消息队列、inbound/outbound |
+| Config | ✅ | 配置加载和管理 |
+| Gateway HTTP | ✅ | HTTP API 端点 |
 
 ---
 
 ## Tools 工具模块
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| registry | ✅ | P0 | 工具注册表 |
-| web_search | ✅ | P0 | Web 搜索 (Brave) |
-| web_fetch | ✅ | P0 | Web 内容获取 (增强) |
-| shell | ✅ | P1 | Shell 命令执行 |
-| filesystem | ✅ | P1 | 文件系统操作 |
-| cron | ✅ | P1 | 定时任务工具 |
-| spawn | ✅ | P2 | 进程启动工具 |
-| message | ✅ | P2 | 消息发送工具 |
-
----
-
-## Bus 消息总线
-
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| queue | ✅ | P0 | 消息队列 |
-| events | ✅ | P1 | 事件系统 |
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| web_search | ✅ | Web 搜索 (Brave Search) |
+| web_fetch | ⚠️ | Web 内容获取 (需完善) |
+| shell | ❌ | Shell 命令执行 |
+| filesystem | ❌ | 文件系统操作 |
 
 ---
 
 ## Channels 渠道模块
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| telegram | ✅ | P0 | Telegram |
-| whatsapp | ✅ | P0 | WhatsApp |
-| qq | ✅ | P0 | QQ |
-| manager | ✅ | P1 | 渠道管理器 (基础) |
-| feishu | ✅ | P2 | 飞书 (Lark) |
-| discord | ✅ | P2 | Discord |
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Discord | ✅ | WebSocket Gateway + REST API |
+| QQ | ✅ | 官方机器人 API (WebSocket + REST) |
+| Telegram | ❌ | stub 实现，未完成 |
+| WhatsApp | ❌ | 未实现 |
 
 ---
 
 ## Providers LLM 提供商
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| base | ✅ | P0 | Provider 基础接口 |
-| openrouter | ✅ | P0 | OpenRouter |
-| openai | ✅ | P0 | OpenAI |
-| anthropic | ✅ | P0 | Anthropic |
-| groq | ✅ | P0 | Groq |
-| gemini | ✅ | P0 | Gemini |
-| minimax | ✅ | P0 | MiniMax |
-| litellm | ✅ | P2 | LiteLLM 统一接口 |
-| transcription | ✅ | P3 | 语音转录 (Groq Whisper API) |
-| deepseek | ✅ | P3 | DeepSeek |
-| zhipu | ✅ | P3 | 智谱 (ChatGLM) |
-| moonshot | ✅ | P3 | 月之暗面 (Kimi) |
-| vllm | ✅ | P3 | VLLM 本地部署 |
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| LLMProvider trait | ✅ | 统一接口 |
+| OpenAI | ✅ | GPT-4o, GPT-4o-mini |
+| Anthropic | ✅ | Claude 3.5 Sonnet |
+| MiniMax | ✅ | MiniMax-M2.1 |
+| OpenRouter | ✅ | 统一路由 |
+| Groq | ✅ | 快速推理 |
+| Gemini | ✅ | Google Gemini |
+| DeepSeek | ❌ | 未完成 |
+| 智谱 | ❌ | 未完成 |
+| 月之暗面 | ❌ | 未完成 |
 
 ---
 
-## Skills 技能模块
+## Docker 部署
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| cron | ✅ | P0 | 定时任务技能 |
-| github | ✅ | P2 | GitHub 操作 (gh CLI) |
-| weather | ✅ | P3 | 天气查询 (wttr.in) |
-| summarize | ✅ | P3 | 文本总结 (summarize.sh) |
-| tmux | ✅ | P3 | Tmux 集成 |
+| 功能 | 状态 | 说明 |
+|------|------|------|
+| Dockerfile | ✅ | 多阶段构建 |
+| docker-compose | ✅ | 部署配置 |
+| Healthcheck | ✅ | 健康检查 |
 
 ---
 
-## Session 模块
+## 待完成事项
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| manager | ✅ | P0 | 会话管理 |
+### 高优先级
 
----
+1. **完善 Telegram 渠道** - 实现完整的 Webhook/Long Polling
+2. **完善 shell/filesystem 工具** - 安全风险需评估
+3. **DeepSeek/智谱/月之暗面 Provider** - 添加更多 LLM 支持
 
-## Cron 模块
+### 中优先级
 
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| scheduler | ✅ | P0 | 调度器 |
-| service | ✅ | P0 | 定时服务 |
+4. **WhatsApp 渠道** - 调研 Telegram MTProto 或 webhook 方案
+5. **工具参数验证** - 增强安全性
+6. **Rate Limiting** - 防止滥用
 
----
+### 低优先级
 
-## Heartbeat 模块
-
-| 功能 | 状态 | 优先级 | 说明 |
-|------|------|--------|------|
-| heartbeat | ✅ | P0 | 心跳监控 |
+7. **Web UI** - 管理界面
+8. **数据库持久化** - 会话历史存储
+9. **监控指标** - Prometheus 集成
 
 ---
 
-## 实现顺序 (所有 Phase 已完成)
-
-### Phase 1: 工具补全 ✅
-- ✅ shell, filesystem, cron_tool, spawn, message
-
-### Phase 2: 上下文和事件 ✅
-- ✅ context, events
-
-### Phase 3: 子代理 ✅
-- ✅ subagent
-
-### Phase 4: 扩展提供商 ✅
-- ✅ litellm, deepseek, zhipu, moonshot, vllm, transcription
-
-### Phase 5: 新渠道 ✅
-- ✅ feishu, discord
-
-### Phase 6: 技能扩展 ✅
-- ✅ github, weather, summarize, tmux
-
----
-
-## 进度追踪
-
-**所有功能已完成实现！** Rust 版本的 openat 现在与 Python nanobot 功能对齐。
-
-### 已完成 ✅
-- ✅ Agent 模块 (loop, memory, skills, context, subagent)
-- ✅ Tools (shell, filesystem, cron, spawn, message, web_search, web_fetch)
-- ✅ Providers (OpenAI, Anthropic, Groq, Gemini, MiniMax, DeepSeek, Zhipu, Moonshot, VLLM, LiteLLM, Transcription)
-- ✅ Channels (Telegram, WhatsApp, QQ, Discord, Feishu)
-- ✅ Bus (消息队列, 事件系统)
-- ✅ Skills (cron, github, weather, summarize, tmux)
-- ✅ Session, Cron, Heartbeat
-
-### 下一步优化方向
-- WebSocket 实时消息支持
-- 工具参数验证增强
-- **安全修复**: 命令注入防护、目录遍历限制
-
----
-
-**测试状态**: 73/110 (68%) - 57 单元测试通过, 性能测试通过, 发现 3 个安全漏洞
-
-*文档更新时间: 2026-02-07*
+*文档更新时间: 2026-02-22*
