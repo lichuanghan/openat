@@ -97,6 +97,7 @@ pub struct AgentExecutor {
     bus: openat_runtime::MessageBus,
     max_history_messages: usize,
     model: String,
+    tool_config: openat_config::Tools,
 }
 
 impl AgentExecutor {
@@ -112,6 +113,9 @@ impl AgentExecutor {
         let system_prompt = Self::build_system_prompt(&workspace);
         let model = config.agents.defaults.model.clone();
 
+        // Store tool config for dynamic tool loading
+        let tool_config = config.tools.clone();
+
         Self {
             provider,
             session_manager: SessionManager::new(sessions_dir),
@@ -120,6 +124,7 @@ impl AgentExecutor {
             bus: bus.clone(),
             max_history_messages: 20,
             model,
+            tool_config,
         }
     }
 
@@ -226,10 +231,14 @@ You have access to tools that you can use:
         messages
     }
 
-    /// Get tool definitions for the LLM.
+    /// Get tool definitions for the LLM based on config.
     fn get_tool_definitions(&self) -> Vec<openat_types::ToolDefinition> {
-        vec![
-            openat_types::ToolDefinition::new(
+        let mut tools = Vec::new();
+        let config = &self.tool_config;
+
+        // Filesystem tools (read_file, write_file, list_dir)
+        if config.filesystem {
+            tools.push(openat_types::ToolDefinition::new(
                 "read_file",
                 "Read the contents of a file at the given path.",
                 json!({
@@ -242,8 +251,8 @@ You have access to tools that you can use:
                     },
                     "required": ["path"]
                 }),
-            ),
-            openat_types::ToolDefinition::new(
+            ));
+            tools.push(openat_types::ToolDefinition::new(
                 "write_file",
                 "Write content to a file. Creates parent directories if needed.",
                 json!({
@@ -260,8 +269,8 @@ You have access to tools that you can use:
                     },
                     "required": ["path", "content"]
                 }),
-            ),
-            openat_types::ToolDefinition::new(
+            ));
+            tools.push(openat_types::ToolDefinition::new(
                 "list_dir",
                 "List the contents of a directory.",
                 json!({
@@ -274,8 +283,12 @@ You have access to tools that you can use:
                     },
                     "required": ["path"]
                 }),
-            ),
-            openat_types::ToolDefinition::new(
+            ));
+        }
+
+        // Shell tool
+        if config.shell {
+            tools.push(openat_types::ToolDefinition::new(
                 "exec",
                 "Execute a shell command and return the output.",
                 json!({
@@ -288,8 +301,12 @@ You have access to tools that you can use:
                     },
                     "required": ["cmd"]
                 }),
-            ),
-            openat_types::ToolDefinition::new(
+            ));
+        }
+
+        // Web search (requires enabled + api_key)
+        if config.web_search.enabled && !config.web_search.api_key.is_empty() {
+            tools.push(openat_types::ToolDefinition::new(
                 "web_search",
                 "Search the web for information. Use this when you need current events.",
                 json!({
@@ -302,8 +319,12 @@ You have access to tools that you can use:
                     },
                     "required": ["query"]
                 }),
-            ),
-            openat_types::ToolDefinition::new(
+            ));
+        }
+
+        // Web fetch
+        if config.web_fetch {
+            tools.push(openat_types::ToolDefinition::new(
                 "web_fetch",
                 "Fetch and extract text content from a URL.",
                 json!({
@@ -316,8 +337,10 @@ You have access to tools that you can use:
                     },
                     "required": ["url"]
                 }),
-            ),
-        ]
+            ));
+        }
+
+        tools
     }
 
     /// Chat with tool support.
@@ -398,6 +421,32 @@ You have access to tools that you can use:
 
     /// Execute a tool.
     async fn execute_tool(&self, name: &str, arguments: &Value) -> String {
+        // Check if tool is enabled in config
+        let config = &self.tool_config;
+        match name {
+            "read_file" | "write_file" | "list_dir" => {
+                if !config.filesystem {
+                    return "Error: filesystem tool is disabled".to_string();
+                }
+            }
+            "exec" => {
+                if !config.shell {
+                    return "Error: shell tool is disabled".to_string();
+                }
+            }
+            "web_search" => {
+                if !config.web_search.enabled || config.web_search.api_key.is_empty() {
+                    return "Error: web_search tool is disabled".to_string();
+                }
+            }
+            "web_fetch" => {
+                if !config.web_fetch {
+                    return "Error: web_fetch tool is disabled".to_string();
+                }
+            }
+            _ => {}
+        }
+
         // Handle arguments that are wrapped in a string (common with some LLMs)
         let args: HashMap<String, Value> = if arguments.is_string() {
             // Try to parse as JSON string
@@ -421,10 +470,14 @@ You have access to tools that you can use:
         match name {
             "read_file" => {
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    let expanded_path = expand_path(path);
-                    match fs::read_to_string(&expanded_path).await {
-                        Ok(content) => content,
-                        Err(e) => format!("Error reading file {}: {}", expanded_path, e),
+                    match validate_path(path, &self.workspace, self.tool_config.restrict_to_workspace) {
+                        Ok(expanded_path) => {
+                            match fs::read_to_string(&expanded_path).await {
+                                Ok(content) => content,
+                                Err(e) => format!("Error reading file {}: {}", expanded_path, e),
+                            }
+                        }
+                        Err(e) => e,
                     }
                 } else {
                     "Error: path parameter required".to_string()
@@ -435,13 +488,17 @@ You have access to tools that you can use:
                 let content = args.get("content").and_then(|v| v.as_str());
 
                 if let (Some(path), Some(content)) = (path, content) {
-                    let expanded_path = expand_path(path);
-                    if let Some(parent) = std::path::PathBuf::from(&expanded_path).parent() {
-                        let _ = fs::create_dir_all(parent).await;
-                    }
-                    match fs::write(&expanded_path, content).await {
-                        Ok(_) => format!("Successfully wrote {} bytes to {}", content.len(), expanded_path),
-                        Err(e) => format!("Error writing file {}: {}", expanded_path, e),
+                    match validate_path(path, &self.workspace, self.tool_config.restrict_to_workspace) {
+                        Ok(expanded_path) => {
+                            if let Some(parent) = std::path::PathBuf::from(&expanded_path).parent() {
+                                let _ = fs::create_dir_all(parent).await;
+                            }
+                            match fs::write(&expanded_path, content).await {
+                                Ok(_) => format!("Successfully wrote {} bytes to {}", content.len(), expanded_path),
+                                Err(e) => format!("Error writing file {}: {}", expanded_path, e),
+                            }
+                        }
+                        Err(e) => e,
                     }
                 } else {
                     "Error: path and content parameters required".to_string()
@@ -449,20 +506,24 @@ You have access to tools that you can use:
             }
             "list_dir" => {
                 if let Some(path) = args.get("path").and_then(|v| v.as_str()) {
-                    let expanded_path = expand_path(path);
-                    match fs::read_dir(&expanded_path).await {
-                        Ok(mut entries) => {
-                            let mut items = Vec::new();
-                            while let Some(entry) = entries.next_entry().await.unwrap_or(None) {
-                                items.push(entry.file_name().to_string_lossy().to_string());
-                            }
-                            if items.is_empty() {
-                                format!("Directory {} is empty", expanded_path)
-                            } else {
-                                items.join("\n")
+                    match validate_path(path, &self.workspace, self.tool_config.restrict_to_workspace) {
+                        Ok(expanded_path) => {
+                            match fs::read_dir(&expanded_path).await {
+                                Ok(mut entries) => {
+                                    let mut items = Vec::new();
+                                    while let Some(entry) = entries.next_entry().await.unwrap_or(None) {
+                                        items.push(entry.file_name().to_string_lossy().to_string());
+                                    }
+                                    if items.is_empty() {
+                                        format!("Directory {} is empty", expanded_path)
+                                    } else {
+                                        items.join("\n")
+                                    }
+                                }
+                                Err(e) => format!("Error listing directory {}: {}", expanded_path, e),
                             }
                         }
-                        Err(e) => format!("Error listing directory {}: {}", expanded_path, e),
+                        Err(e) => e,
                     }
                 } else {
                     "Error: path parameter required".to_string()
@@ -521,4 +582,29 @@ fn expand_path(path: &str) -> String {
     } else {
         path.to_string()
     }
+}
+
+/// Validate that a path is within the allowed workspace
+fn validate_path(path: &str, workspace: &std::path::Path, restrict: bool) -> Result<String, String> {
+    let expanded = expand_path(path);
+    let path_buf = std::path::PathBuf::from(&expanded);
+
+    if restrict {
+        // Resolve both paths to canonical form
+        let ws_canonical = workspace.canonicalize()
+            .unwrap_or_else(|_| workspace.to_path_buf());
+        let path_canonical = path_buf.canonicalize()
+            .unwrap_or_else(|_| path_buf.clone());
+
+        // Check if path is within workspace
+        if !path_canonical.starts_with(&ws_canonical) {
+            return Err(format!(
+                "Access denied: path '{}' is outside workspace '{}'",
+                expanded,
+                workspace.display()
+            ));
+        }
+    }
+
+    Ok(expanded)
 }

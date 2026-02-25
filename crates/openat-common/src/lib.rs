@@ -7,3 +7,4 @@ pub mod macros;
 pub mod utils;
 
 pub use error::{CommonError, CommonResult};
+pub use utils::{retry_async, RetryConfig};

@@ -88,7 +88,11 @@ impl DiscordChannel {
 
     /// Send a message to a Discord channel via REST API.
     /// Automatically splits messages longer than 2000 characters.
+    /// Includes retry logic with exponential backoff for transient failures.
     async fn send_message(token: &str, channel_id: &str, content: &str) -> Result<(), String> {
+        const MAX_RETRIES: u8 = 3;
+        const BASE_DELAY_MS: u64 = 500;
+
         let client = reqwest::Client::new();
         let url = format!("https://discord.com/api/v10/channels/{}/messages", channel_id);
 
@@ -96,19 +100,58 @@ impl DiscordChannel {
         let chunks = split_message(content, 2000);
 
         for chunk in &chunks {
-            let resp = client
-                .post(&url)
-                .header("Authorization", format!("Bot {}", token))
-                .header("Content-Type", "application/json")
-                .json(&json!({ "content": chunk }))
-                .send()
-                .await
-                .map_err(|e| format!("Failed to send Discord message: {}", e))?;
+            let mut last_error = None;
 
-            if !resp.status().is_success() {
-                let status = resp.status();
-                let body = resp.text().await.unwrap_or_default();
-                return Err(format!("Discord API error {}: {}", status, body));
+            for attempt in 0..MAX_RETRIES {
+                let resp = client
+                    .post(&url)
+                    .header("Authorization", format!("Bot {}", token))
+                    .header("Content-Type", "application/json")
+                    .json(&json!({ "content": chunk }))
+                    .send()
+                    .await;
+
+                match resp {
+                    Ok(resp) if resp.status().is_success() => {
+                        // Success, break retry loop
+                        last_error = None;
+                        break;
+                    }
+                    Ok(resp) => {
+                        let status = resp.status();
+                        let body = resp.text().await.unwrap_or_default();
+
+                        // Check if retryable (5xx errors, rate limiting 429)
+                        if status.is_server_error() || status.as_u16() == 429 {
+                            last_error = Some(format!("Discord API error {}: {}", status, body));
+                            if attempt < MAX_RETRIES - 1 {
+                                let delay = BASE_DELAY_MS * (2u64.pow(attempt as u32)).min(10000);
+                                warn!("Discord send failed (attempt {}/{}), retrying after {}ms: {}",
+                                    attempt + 1, MAX_RETRIES, delay, last_error.as_ref().unwrap());
+                                tokio::time::sleep(Duration::from_millis(delay)).await;
+                                continue;
+                            }
+                        } else {
+                            // Non-retryable error
+                            return Err(format!("Discord API error {}: {}", status, body));
+                        }
+                    }
+                    Err(e) => {
+                        // Network error - retry
+                        last_error = Some(format!("Network error: {}", e));
+                        if attempt < MAX_RETRIES - 1 {
+                            let delay = BASE_DELAY_MS * (2u64.pow(attempt as u32)).min(10000);
+                            warn!("Discord send failed (attempt {}/{}), retrying after {}ms: {}",
+                                attempt + 1, MAX_RETRIES, delay, e);
+                            tokio::time::sleep(Duration::from_millis(delay)).await;
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            if let Some(e) = last_error {
+                return Err(format!("Discord send failed after {} retries: {}", MAX_RETRIES, e));
             }
 
             // Small delay between chunks to avoid rate limiting

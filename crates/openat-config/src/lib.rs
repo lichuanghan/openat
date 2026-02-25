@@ -8,6 +8,7 @@ pub mod prelude {
     pub use super::{Config, Providers, ProviderConfig, Agents, AgentDefaults};
     pub use super::{Tools, WebSearch, ProxyConfig};
     pub use super::{Channels, Telegram, WhatsApp, QQ, Discord};
+    pub use super::ConfigWarning;
 }
 
 // Provider configurations
@@ -55,6 +56,7 @@ pub struct Agents {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct WebSearch {
+    pub enabled: bool,
     pub api_key: String,
 }
 
@@ -65,12 +67,29 @@ pub struct ProxyConfig {
     pub enabled: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Tools {
     pub web_search: WebSearch,
     pub proxy: ProxyConfig,
     pub restrict_to_workspace: bool,
+    // Tool enable/disable flags
+    pub filesystem: bool,
+    pub shell: bool,
+    pub web_fetch: bool,
+}
+
+impl Default for Tools {
+    fn default() -> Self {
+        Self {
+            web_search: WebSearch::default(),
+            proxy: ProxyConfig::default(),
+            restrict_to_workspace: false,
+            filesystem: true,   // Enable filesystem by default
+            shell: false,       // Disable shell by default for security
+            web_fetch: false,   // Disable web_fetch by default
+        }
+    }
 }
 
 // Channel configurations
@@ -201,6 +220,77 @@ impl Config {
             }
         }
         None
+    }
+
+    /// Validate configuration
+    pub fn validate(&self) -> Vec<ConfigWarning> {
+        let mut warnings = Vec::new();
+
+        // Check if any provider API key is configured
+        if self.get_api_key().is_none() {
+            warnings.push(ConfigWarning::MissingApiKey);
+        }
+
+        // Check if any channel is enabled
+        let any_channel_enabled = self.channels.discord.enabled
+            || self.channels.qq.enabled
+            || self.channels.telegram.enabled
+            || self.channels.whatsapp.enabled;
+
+        if !any_channel_enabled {
+            warnings.push(ConfigWarning::NoChannelEnabled);
+        }
+
+        // Check Discord config if enabled
+        if self.channels.discord.enabled && self.channels.discord.token.is_empty() {
+            warnings.push(ConfigWarning::DiscordMissingToken);
+        }
+
+        // Check QQ config if enabled
+        if self.channels.qq.enabled {
+            if self.channels.qq.app_id.is_empty() {
+                warnings.push(ConfigWarning::QQMissingAppId);
+            }
+            if self.channels.qq.client_secret.is_empty() {
+                warnings.push(ConfigWarning::QQMissingSecret);
+            }
+        }
+
+        // Check web_search if enabled
+        if self.tools.web_search.enabled && self.tools.web_search.api_key.is_empty() {
+            warnings.push(ConfigWarning::WebSearchMissingApiKey);
+        }
+
+        warnings
+    }
+
+    /// Check if configuration is valid (no errors, warnings are ok)
+    pub fn is_valid(&self) -> bool {
+        self.validate().is_empty()
+    }
+}
+
+/// Configuration warnings
+#[derive(Debug, Clone)]
+pub enum ConfigWarning {
+    MissingApiKey,
+    NoChannelEnabled,
+    DiscordMissingToken,
+    QQMissingAppId,
+    QQMissingSecret,
+    WebSearchMissingApiKey,
+}
+
+impl std::fmt::Display for ConfigWarning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConfigWarning::MissingApiKey => write!(f, "No LLM provider API key configured"),
+            ConfigWarning::NoChannelEnabled => write!(f, "No messaging channel is enabled"),
+            ConfigWarning::DiscordMissingToken => write!(f, "Discord channel enabled but token is empty"),
+            ConfigWarning::QQMissingAppId => write!(f, "QQ channel enabled but app_id is empty"),
+            ConfigWarning::QQMissingSecret => write!(f, "QQ channel enabled but client_secret is empty"),
+            ConfigWarning::WebSearchMissingApiKey => write!(f, "Web search enabled but API key is empty"),
+        }
     }
 }
 

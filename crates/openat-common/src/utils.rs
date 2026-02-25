@@ -1,5 +1,65 @@
 //! Common utilities
 
+use std::future::Future;
+use std::time::Duration;
+
+/// Retry configuration
+#[derive(Debug, Clone)]
+pub struct RetryConfig {
+    pub max_retries: u32,
+    pub initial_delay: Duration,
+    pub max_delay: Duration,
+    pub backoff_factor: f64,
+}
+
+impl Default for RetryConfig {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay: Duration::from_millis(500),
+            max_delay: Duration::from_secs(10),
+            backoff_factor: 2.0,
+        }
+    }
+}
+
+/// Retry an async operation with exponential backoff
+pub async fn retry_async<T, E, F, Fut>(
+    config: &RetryConfig,
+    mut operation: F,
+) -> Result<T, E>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<T, E>>,
+    E: std::fmt::Debug,
+{
+    let mut delay = config.initial_delay;
+    let mut last_error: Option<E> = None;
+
+    for attempt in 0..config.max_retries {
+        match operation().await {
+            Ok(result) => return Ok(result),
+            Err(e) => {
+                last_error = Some(e);
+                if attempt < config.max_retries - 1 {
+                    tracing::warn!(
+                        "Retry attempt {}/{} failed, waiting {:?}",
+                        attempt + 1,
+                        config.max_retries,
+                        delay
+                    );
+                    tokio::time::sleep(delay).await;
+                    delay = Duration::from_secs_f64(
+                        (delay.as_secs_f64() * config.backoff_factor).min(config.max_delay.as_secs_f64()),
+                    );
+                }
+            }
+        }
+    }
+
+    Err(last_error.unwrap())
+}
+
 /// Expand ~ to home directory
 pub fn expand_home(path: &str) -> std::path::PathBuf {
     if path.starts_with("~") {

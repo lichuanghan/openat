@@ -4,18 +4,93 @@
 
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::{layer::SubscriberExt, EnvFilter};
 use std::sync::Arc;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::UNIX_EPOCH;
 
 const VERSION: &str = "0.1.0";
 
-/// Initialize tracing with environment-based filtering
+/// Global start time (seconds since UNIX_EPOCH)
+static START_TIME: AtomicU64 = AtomicU64::new(0);
+
+/// Set the start time (call once at startup)
+fn set_start_time() {
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    START_TIME.store(now, Ordering::SeqCst);
+}
+
+/// Get uptime in seconds
+fn get_uptime() -> u64 {
+    let start = START_TIME.load(Ordering::SeqCst);
+    if start == 0 {
+        return 0;
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    now.saturating_sub(start)
+}
+
+/// Simple FNV hash function for deduplication
+fn fnv_hash(s: &str) -> u64 {
+    const FNV_PRIME: u64 = 1099511628211;
+    const FNV_OFFSET: u64 = 14695981039346656037;
+    let mut hash = FNV_OFFSET;
+    for byte in s.bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    hash
+}
+
+/// Get log directory path
+fn get_log_dir() -> PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        PathBuf::from(home).join(".openat/logs")
+    } else {
+        PathBuf::from("logs")
+    }
+}
+
+/// Initialize tracing with environment-based filtering and file output
 fn init_logging() {
-    let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("openat=info"));
+    let env_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("openat=info"));
+
+    // Create log directory
+    let log_dir = get_log_dir();
+    let _ = std::fs::create_dir_all(&log_dir);
+
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "openat.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+
+    // Keep the guard alive for the duration of the program
+    std::mem::forget(_guard);
 
     let subscriber = tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(EnvFilter::new("openat=debug"))
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(non_blocking)
+                .with_ansi(false)
+                .with_target(true)
+                .with_thread_ids(true)
+                .with_file(true)
+                .with_line_number(true)
+        )
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_writer(std::io::stderr)
+                .with_ansi(true)
+                .with_target(false)
+                .compact()
+        )
         .with(env_filter);
 
     tracing::subscriber::set_global_default(subscriber)
@@ -130,6 +205,9 @@ async fn onboard() -> Result<()> {
 async fn gateway(port: u16) -> Result<()> {
     use std::net::SocketAddr;
 
+    // Set start time for uptime tracking
+    set_start_time();
+
     tracing::info!("Gateway starting on port {}", port);
 
     // Load configuration
@@ -166,12 +244,57 @@ async fn gateway(port: u16) -> Result<()> {
 
     // Start inbound message handler (connects bus -> agent -> bus)
     {
+        use std::collections::HashSet;
+        use std::sync::Mutex;
+        use std::time::{Duration, Instant};
+
         let executor = executor.clone();
         let mut inbound_rx = bus.subscribe_inbound();
+
+        // Deduplication cache: message_hash -> timestamp
+        let dedup_cache: Arc<Mutex<HashSet<(u64, Instant)>>> = Arc::new(Mutex::new(HashSet::new()));
+        let dedup_clone = dedup_cache.clone();
+
+        // Cleanup task for dedup cache
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(30)).await;
+                if let Ok(mut cache) = dedup_clone.lock() {
+                    let now = Instant::now();
+                    cache.retain(|(_, t)| now.duration_since(*t) < Duration::from_secs(60));
+                }
+            }
+        });
+
         tokio::spawn(async move {
             loop {
                 match inbound_rx.recv().await {
                     Ok(msg) => {
+                        // Create a simple hash from channel + sender_id + content
+                        let msg_hash = fnv_hash(&format!("{}:{}:{}",
+                            msg.channel, msg.sender_id, msg.content));
+
+                        // Check for duplicates (within last 60 seconds)
+                        let is_duplicate = {
+                            if let Ok(cache) = dedup_cache.lock() {
+                                cache.iter().any(|(h, t)| {
+                                    *h == msg_hash && Instant::now().duration_since(*t) < Duration::from_secs(60)
+                                })
+                            } else {
+                                false
+                            }
+                        };
+
+                        if is_duplicate {
+                            tracing::debug!("Duplicate message ignored: {}", msg.content);
+                            continue;
+                        }
+
+                        // Add to cache
+                        if let Ok(mut cache) = dedup_cache.lock() {
+                            cache.insert((msg_hash, Instant::now()));
+                        }
+
                         tracing::info!("Processing inbound message from {}: {}", msg.channel, msg.content);
                         let mut exec = executor.lock().await;
                         match exec.handle_message(&msg).await {
@@ -198,16 +321,51 @@ async fn gateway(port: u16) -> Result<()> {
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Gateway running at http://0.0.0.0:{}/", port);
 
-    loop {
-        let (stream, _) = listener.accept().await?;
-        let executor = executor.clone();
+    // Create shutdown signal handler
+    let shutdown = Arc::new(AtomicBool::new(false));
+    let shutdown_clone = shutdown.clone();
 
-        tokio::spawn(async move {
-            if let Err(e) = handle_connection(stream, executor).await {
-                tracing::error!("Connection error: {}", e);
+    // Spawn Ctrl+C handler
+    tokio::spawn(async move {
+        use tokio::signal;
+        signal::ctrl_c().await.ok();
+        tracing::info!("Received shutdown signal (Ctrl+C)");
+        shutdown_clone.store(true, Ordering::SeqCst);
+    });
+
+    // Main accept loop with graceful shutdown
+    loop {
+        tokio::select! {
+            result = listener.accept() => {
+                match result {
+                    Ok((stream, _)) => {
+                        let executor = executor.clone();
+                        tokio::spawn(async move {
+                            if let Err(e) = handle_connection(stream, executor).await {
+                                tracing::error!("Connection error: {}", e);
+                            }
+                        });
+                    }
+                    Err(e) => {
+                        tracing::error!("Accept error: {}", e);
+                    }
+                }
             }
-        });
+            _ = tokio::time::sleep(std::time::Duration::from_millis(100)) => {
+                // Check for shutdown
+                if shutdown.load(Ordering::SeqCst) {
+                    tracing::info!("Shutting down gracefully...");
+                    break;
+                }
+            }
+        }
     }
+
+    // Give some time for pending tasks to complete
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    tracing::info!("Gateway stopped");
+
+    Ok(())
 }
 
 async fn handle_connection(
@@ -222,7 +380,15 @@ async fn handle_connection(
 
     // Simple HTTP parser
     let response: String = if request.contains("GET /health") {
-        "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nOK".to_string()
+        // Enhanced health check with JSON response
+        let health = serde_json::json!({
+            "status": "healthy",
+            "version": VERSION,
+            "uptime_seconds": get_uptime(),
+            "timestamp": chrono::Utc::now().to_rfc3339()
+        });
+        let json = health.to_string();
+        format!("HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}", json.len(), json)
     } else if request.contains("POST /chat") {
         // Extract JSON body
         if let Some(body_start) = request.find("{") {
