@@ -13,6 +13,8 @@ tokio = { workspace = true, features = ["fs", "macros"] }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 chrono = { workspace = true }
+futures-util = { workspace = true }
+async-stream = { workspace = true }
 
 # Internal crates
 openat-types = { path = "../openat-types" }

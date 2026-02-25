@@ -9,12 +9,16 @@ pub mod prelude {
     pub use super::file::FileTool;
     pub use super::exec::ExecTool;
     pub use super::web::WebTool;
+    pub use super::plugin::{Plugin, PluginMeta, ToolRegistry as PluginRegistry, ToolSpec, ToolCategory};
+    pub use super::skill::{Skill, SkillManager};
 }
 
 pub mod registry;
 pub mod file;
 pub mod exec;
 pub mod web;
+pub mod plugin;
+pub mod skill;
 
 use openat_types::ToolDefinition;
 

@@ -43,6 +43,8 @@ pub struct AgentDefaults {
     pub model: String,
     pub max_tokens: usize,
     pub temperature: f64,
+    /// Agent name for display
+    pub name: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -122,6 +124,8 @@ pub struct QQ {
     pub listen_group: bool,
     pub listen_private: bool,
     pub listen_guild: bool,
+    /// Enable streaming/typing effect for responses
+    pub streaming: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

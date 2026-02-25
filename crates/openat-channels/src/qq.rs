@@ -176,6 +176,7 @@ impl QQChannel {
     }
 
     /// Send a message via REST API
+    /// If streaming is true, send in smaller chunks with delays to simulate typing
     async fn send_message(
         client: &Arc<reqwest::Client>,
         api_base: &str,
@@ -184,9 +185,11 @@ impl QQChannel {
         target_id: &str,
         content: &str,
         msg_id: Option<&str>,
+        streaming: bool,
     ) -> Result<(), String> {
-        // QQ limit is 2000 chars per message
-        let chunks = split_message(content, 2000);
+        // Determine chunk size based on streaming mode
+        let chunk_size = if streaming { 100 } else { 2000 };
+        let chunks = split_message(content, chunk_size);
 
         for (i, chunk) in chunks.iter().enumerate() {
             let url = match msg_type {
@@ -247,9 +250,19 @@ impl QQChannel {
                 return Err(format!("QQ API error {}: {}", status, body));
             }
 
-            // Small delay between chunks to avoid rate limiting
-            if chunks.len() > 1 {
-                tokio::time::sleep(Duration::from_millis(500)).await;
+            // Delay between chunks
+            let delay = if streaming {
+                // Streaming mode: longer delay for typing effect
+                Duration::from_millis(500)
+            } else if chunks.len() > 1 {
+                // Non-streaming: small delay to avoid rate limiting
+                Duration::from_millis(500)
+            } else {
+                Duration::from_millis(0)
+            };
+
+            if delay.as_millis() > 0 {
+                tokio::time::sleep(delay).await;
             }
         }
 
@@ -321,6 +334,7 @@ impl QQChannel {
             let access_token = self.access_token.clone();
             let http_client = self.http_client.clone();
             let api_base = self.api_base().to_string();
+            let streaming = self.config.streaming;
             let mut outbound_rx = bus.subscribe_outbound();
             let running = self.running.clone();
 
@@ -369,7 +383,7 @@ impl QQChannel {
                             let msg_id = msg.reply_to.as_deref();
 
                             let result = QQChannel::send_message(
-                                &http_client, &api_base, &token, msg_type, target_id, &msg.content, msg_id,
+                                &http_client, &api_base, &token, msg_type, target_id, &msg.content, msg_id, streaming,
                             ).await;
 
                             match result {

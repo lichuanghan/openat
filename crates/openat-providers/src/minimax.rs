@@ -1,8 +1,10 @@
 //! MiniMax provider - Chinese LLM.
 
-use crate::{LLMProvider, LLMResponse};
+use crate::{LLMProvider, LLMResponse, StreamResponse};
 use super::openai_compat::OpenAICompatConfig;
 use serde_json::Value;
+use std::pin::Pin;
+use futures_util::Stream;
 
 /// MiniMax provider
 #[derive(Debug, Clone)]
@@ -32,6 +34,19 @@ impl LLMProvider for MiniMaxProvider {
         tools: &[Value],
     ) -> Result<LLMResponse, String> {
         self.config.chat_impl(messages, model, tools).await
+    }
+
+    fn stream(
+        &self,
+        messages: &[Value],
+        model: &str,
+        tools: &[Value],
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamResponse, String>> + Send>> {
+        self.config.stream_impl(messages, model, tools)
+    }
+
+    fn supports_streaming(&self) -> bool {
+        true
     }
 
     fn name(&self) -> &str {

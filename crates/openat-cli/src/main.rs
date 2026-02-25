@@ -112,7 +112,14 @@ enum Commands {
     /// Start the gateway
     Gateway { port: Option<u16> },
     /// Chat with the agent
-    Agent { message: Option<String> },
+    Agent {
+        message: Option<String>,
+        /// Enable streaming response
+        #[arg(short, long, default_value = "false")]
+        stream: bool
+    },
+    /// Test streaming response
+    TestStream { message: String },
     /// Show channel status
     ChannelStatus,
     /// Login/link a channel
@@ -153,13 +160,22 @@ async fn main() -> Result<()> {
     match args.command {
         Commands::Onboard => onboard().await?,
         Commands::Gateway { port } => gateway(port.unwrap_or(18790)).await?,
-        Commands::Agent { message } => {
+        Commands::Agent { message, stream } => {
             if let Some(msg) = message {
-                agent(&msg).await?
+                if stream {
+                    agent_stream(&msg).await?
+                } else {
+                    agent(&msg).await?
+                }
             } else {
-                agent_interactive().await?
+                if stream {
+                    agent_interactive_stream().await?
+                } else {
+                    agent_interactive().await?
+                }
             }
         }
+        Commands::TestStream { message } => test_stream(&message).await?,
         Commands::ChannelStatus => channel_status()?,
         Commands::ChannelLogin { channel } => channel_login(channel.as_deref()).await?,
         Commands::CronList { all } => cron_list(all)?,
@@ -449,6 +465,77 @@ struct ChatRequest {
 }
 
 /// Chat response structure
+/// Test streaming response from the agent
+async fn test_stream(message: &str) -> Result<()> {
+    agent_stream(message).await
+}
+
+/// Get agent name prefix for display
+fn agent_name_prefix(config: &openat_config::Config) -> String {
+    let name = &config.agents.defaults.name;
+    if name.is_empty() {
+        "Assistant".to_string()
+    } else {
+        name.clone()
+    }
+}
+
+/// Stream agent response
+async fn agent_stream(message: &str) -> Result<()> {
+    use futures_util::StreamExt;
+    tracing::info!("Agent streaming message: {}", message);
+
+    // Load configuration
+    let config = openat_config::Config::load();
+
+    // Create provider
+    let provider = create_provider(&config)?;
+
+    // Check if provider supports streaming
+    if !provider.supports_streaming() {
+        println!("Provider does not support streaming, using regular response");
+        return agent(message).await;
+    }
+
+    // Create message bus
+    let bus = openat_runtime::MessageBus::new();
+
+    // Create agent executor
+    let executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
+
+    // Create a test inbound message
+    let inbound = openat_types::InboundMessage::new("cli", "user", "cli", message);
+
+    // Handle the message with streaming
+    let mut stream = executor.handle_message_streaming(&inbound);
+
+    let agent_name = &config.agents.defaults.name;
+    if agent_name.is_empty() {
+        print!("\nAssistant: ");
+    } else {
+        print!("\n{}: ", agent_name);
+    }
+    std::io::Write::flush(&mut std::io::stdout()).unwrap();
+
+    while let Some(chunk_result) = stream.next().await {
+        match chunk_result {
+            Ok(chunk) => {
+                print!("{}", chunk.content);
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                if chunk.is_final {
+                    println!("\n[Stream complete]");
+                }
+            }
+            Err(e) => {
+                println!("\nError: {}", e);
+                return Err(anyhow::anyhow!(e));
+            }
+        }
+    }
+
+    Ok(())
+}
+
 #[derive(serde::Serialize)]
 struct ChatResponse {
     success: bool,
@@ -475,9 +562,10 @@ async fn agent(message: &str) -> Result<()> {
     let inbound = openat_types::InboundMessage::new("cli", "user", "cli", message);
 
     // Handle the message
+    let name = agent_name_prefix(&config);
     match executor.handle_message(&inbound).await {
         Ok(response) => {
-            println!("\nAssistant: {}", response.content);
+            println!("\n{}: {}", name, response.content);
         }
         Err(e) => {
             tracing::error!("Agent error: {}", e);
@@ -491,10 +579,11 @@ async fn agent(message: &str) -> Result<()> {
 /// Interactive agent chat
 async fn agent_interactive() -> Result<()> {
     tracing::info!("Starting interactive agent mode...");
-    println!("Interactive mode (press Ctrl+C to exit)");
 
     // Load configuration
     let config = openat_config::Config::load();
+    let name = agent_name_prefix(&config);
+    println!("{}: Interactive mode (press Ctrl+C to exit)", name);
 
     // Create provider
     let provider = create_provider(&config)?;
@@ -505,27 +594,116 @@ async fn agent_interactive() -> Result<()> {
     // Create agent executor
     let mut executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
 
-    println!("Type your message and press Enter. Ctrl+C to exit.\n");
+    println!("输入你的消息，回车发送。Ctrl+C 退出。\n");
 
     // Simple loop for input
-    use std::io::{self, BufRead};
+    use std::io::{self, BufRead, Write};
 
     let stdin = io::stdin();
-    for line in stdin.lock().lines() {
-        match line {
-            Ok(input) if !input.trim().is_empty() => {
-                let inbound = openat_types::InboundMessage::new("cli", "user", "cli", &input);
-                match executor.handle_message(&inbound).await {
-                    Ok(response) => {
-                        println!("\nAssistant: {}\n", response.content);
+    loop {
+        print!("你: ");
+        io::stdout().flush()?;
+        let mut line = String::new();
+        if stdin.read_line(&mut line).is_err() {
+            break;
+        }
+        let input = line.trim();
+        if input.is_empty() {
+            continue;
+        }
+
+        let inbound = openat_types::InboundMessage::new("cli", "user", "cli", input);
+        match executor.handle_message(&inbound).await {
+            Ok(response) => {
+                println!("\n{}: {}\n", name, response.content);
+            }
+            Err(e) => {
+                println!("\nError: {}\n", e);
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Interactive agent chat with streaming
+async fn agent_interactive_stream() -> Result<()> {
+    use futures_util::StreamExt;
+    tracing::info!("Starting interactive agent mode with streaming...");
+
+    // Load configuration
+    let config = openat_config::Config::load();
+    let name = agent_name_prefix(&config);
+    println!("{}: Interactive streaming mode (press Ctrl+C to exit)", name);
+
+    // Create provider
+    let provider = create_provider(&config)?;
+
+    // Check if provider supports streaming
+    let streaming_supported = provider.supports_streaming();
+    if !streaming_supported {
+        println!("Warning: Provider does not support streaming, falling back to regular mode");
+    }
+
+    // Create message bus
+    let bus = openat_runtime::MessageBus::new();
+
+    // Create agent executor
+    let executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
+
+    println!("输入你的消息，回车发送。Ctrl+C 退出。\n");
+
+    // Simple loop for input
+    use std::io::{self, Write};
+
+    let stdin = io::stdin();
+    loop {
+        print!("你: ");
+        io::stdout().flush()?;
+        let mut line = String::new();
+        if stdin.read_line(&mut line).is_err() {
+            break;
+        }
+        let input = line.trim();
+        if input.is_empty() {
+            continue;
+        }
+
+        let inbound = openat_types::InboundMessage::new("cli", "user", "cli", input);
+
+        if streaming_supported {
+            // Streaming mode
+            let mut stream = executor.handle_message_streaming(&inbound);
+            print!("\n{}: ", name);
+            io::Write::flush(&mut io::stdout())?;
+
+            while let Some(chunk_result) = stream.next().await {
+                match chunk_result {
+                    Ok(chunk) => {
+                        print!("{}", chunk.content);
+                        io::Write::flush(&mut io::stdout())?;
+                        if chunk.is_final {
+                            println!("\n");
+                        }
                     }
                     Err(e) => {
                         println!("\nError: {}\n", e);
                     }
                 }
             }
-            Ok(_) => {}
-            Err(_) => break,
+        } else {
+            // Fallback to regular mode
+            let mut exec = openat_agent::AgentExecutor::new(
+                create_provider(&config)?, &config, &bus.clone()
+            );
+            match exec.handle_message(&inbound).await {
+                Ok(response) => {
+                    println!("\n{}: {}\n", name, response.content);
+                }
+                Err(e) => {
+                    println!("\nError: {}\n", e);
+                }
+            }
         }
     }
 

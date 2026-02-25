@@ -1,10 +1,12 @@
 //! OpenAI-compatible provider utilities
 
+use futures_util::Stream;
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::pin::Pin;
 
-use crate::{LLMProvider, LLMResponse};
+use crate::{LLMProvider, LLMResponse, StreamResponse};
 
 /// Tool call from LLM
 #[derive(Debug, Clone)]
@@ -84,6 +86,85 @@ impl OpenAICompatConfig {
         }
 
         Self::parse_response(response).await
+    }
+
+    /// Streaming chat implementation
+    /// Note: Simplified implementation - makes non-streaming request and yields as chunks
+    pub fn stream_impl(
+        &self,
+        messages: &[Value],
+        model: &str,
+        tools: &[Value],
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamResponse, String>> + Send>> {
+        let model_name = model.split('/').last().unwrap_or(model).to_string();
+        let api_base = self.api_base.clone();
+        let auth = self.auth_value();
+        let extra_headers = self.extra_headers.clone();
+
+        let body = json!({
+            "model": model_name,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": if tools.is_empty() { json!(null) } else { json!("auto") }
+        });
+
+        Box::pin(async_stream::try_stream! {
+            let client = Client::new();
+            let mut request = client
+                .post(format!("{}/chat/completions", api_base))
+                .header("Authorization", auth)
+                .header("Content-Type", "application/json")
+                .json(&body);
+
+            for (key, value) in &extra_headers {
+                request = request.header(*key, value);
+            }
+
+            let response = request
+                .send()
+                .await
+                .map_err(|e| format!("Stream request failed: {}", e))?;
+
+            let status = response.status();
+            let body_bytes = response.bytes().await
+                .map_err(|e| format!("Read response: {}", e))?;
+
+            if !status.is_success() {
+                let error = String::from_utf8_lossy(&body_bytes);
+                Err(format!("Stream API error {}: {}", status, error))?;
+            }
+
+            let response_json: Value = serde_json::from_slice(&body_bytes)
+                .map_err(|e| format!("Parse error: {}", e))?;
+
+            let choice = &response_json["choices"][0];
+            let content = choice["message"]["content"].as_str().unwrap_or("");
+
+            // Yield content in chunks for typing effect
+            let chars: Vec<char> = content.chars().collect();
+            let chunk_size = 2; // Smaller chunks for typing effect
+            let mut i = 0;
+            while i < chars.len() {
+                let end = std::cmp::min(i + chunk_size, chars.len());
+                let chunk: String = chars[i..end].iter().collect();
+                i = end;
+
+                yield StreamResponse {
+                    content: chunk,
+                    is_final: false,
+                    tool_calls: vec![],
+                };
+
+                // Typing delay - natural reading speed
+                tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+            }
+
+            yield StreamResponse {
+                content: String::new(),
+                is_final: true,
+                tool_calls: vec![],
+            };
+        })
     }
 
     async fn parse_response(response: reqwest::Response) -> Result<LLMResponse, String> {

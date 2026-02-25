@@ -3,7 +3,7 @@
 //! Supports multiple LLM backends through a unified interface.
 
 pub mod prelude {
-    pub use super::{LLMProvider, LLMResponse};
+    pub use super::{LLMProvider, LLMResponse, StreamResponse};
     pub use async_trait::async_trait;
     pub use serde_json::Value;
 }
@@ -23,7 +23,9 @@ pub use gemini::GeminiProvider;
 pub use minimax::MiniMaxProvider;
 
 use async_trait::async_trait;
+use futures_util::Stream;
 use serde_json::Value;
+use std::pin::Pin;
 
 /// Trait for LLM providers
 #[async_trait]
@@ -35,6 +37,23 @@ pub trait LLMProvider: Send + Sync {
         model: &str,
         tools: &[Value],
     ) -> Result<LLMResponse, String>;
+
+    /// Stream a chat response (optional - default returns error)
+    fn stream(
+        &self,
+        _messages: &[Value],
+        _model: &str,
+        _tools: &[Value],
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamResponse, String>> + Send>> {
+        Box::pin(futures_util::stream::iter(vec![Err(
+            "Streaming not supported by this provider".to_string(),
+        )]))
+    }
+
+    /// Whether this provider supports streaming
+    fn supports_streaming(&self) -> bool {
+        false
+    }
 
     /// Provider name
     fn name(&self) -> &str;
@@ -56,4 +75,12 @@ impl LLMResponse {
         self.content.as_ref().map(|s| s.is_empty()).unwrap_or(true)
             && self.tool_calls.is_empty()
     }
+}
+
+/// Streaming response chunk
+#[derive(Debug, Clone)]
+pub struct StreamResponse {
+    pub content: String,
+    pub is_final: bool,
+    pub tool_calls: Vec<openai_compat::ToolCall>,
 }

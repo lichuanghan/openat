@@ -4,9 +4,11 @@
 
 pub mod session;
 
+use futures_util::{Stream, StreamExt};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::fs;
 
@@ -98,6 +100,13 @@ pub struct AgentExecutor {
     max_history_messages: usize,
     model: String,
     tool_config: openat_config::Tools,
+}
+
+/// Streaming response chunk
+#[derive(Debug, Clone)]
+pub struct StreamChunk {
+    pub content: String,
+    pub is_final: bool,
 }
 
 impl AgentExecutor {
@@ -229,6 +238,51 @@ You have access to tools that you can use:
         }
 
         messages
+    }
+
+    /// Handle an inbound message with streaming response.
+    /// Returns a stream of content chunks that can be sent in real-time.
+    pub fn handle_message_streaming(
+        &self,
+        msg: &openat_types::InboundMessage,
+    ) -> Pin<Box<dyn Stream<Item = Result<StreamChunk, String>> + Send>> {
+        let msg = msg.clone();
+        let system_prompt = self.system_prompt.clone();
+        let provider = self.provider.clone();
+        let model = self.model.clone();
+
+        Box::pin(async_stream::stream! {
+            // Check if provider supports streaming
+            if !provider.supports_streaming() {
+                yield Err("Provider does not support streaming".to_string());
+                return;
+            }
+
+            // Build messages
+            let mut messages = vec![Message::system(&system_prompt)];
+            messages.push(Message::user(&msg.content));
+
+            let messages_json: Vec<Value> = messages.iter().map(|m| m.to_json()).collect();
+
+            // Get stream from provider
+            let tool_defs: Vec<Value> = vec![];
+            let mut stream = provider.stream(&messages_json, &model, &tool_defs);
+
+            while let Some(chunk_result) = stream.next().await {
+                match chunk_result {
+                    Ok(chunk) => {
+                        yield Ok(StreamChunk {
+                            content: chunk.content,
+                            is_final: chunk.is_final,
+                        });
+                    }
+                    Err(e) => {
+                        yield Err(e);
+                        return;
+                    }
+                }
+            }
+        })
     }
 
     /// Get tool definitions for the LLM based on config.
