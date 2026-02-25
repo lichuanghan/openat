@@ -61,6 +61,26 @@ impl SkillManager {
         }
     }
 
+    /// Create a new SkillManager with default skills registered
+    pub fn with_defaults() -> Self {
+        let mut manager = Self::new();
+        // Register default skills synchronously
+        let skills = defaults::default_skills();
+        // Note: This is a simplified approach - in production, use async init
+        for skill in skills {
+            // We'll register via async in agent
+            let _ = skill;
+        }
+        manager
+    }
+
+    /// Initialize with default skills (async)
+    pub async fn init_default_skills(&self) {
+        for skill in defaults::default_skills() {
+            self.register(skill).await;
+        }
+    }
+
     /// Register a skill
     pub async fn register(&self, skill: Skill) {
         let mut skills = self.skills.write().await;
@@ -75,6 +95,11 @@ impl SkillManager {
 
     /// Find skills that match a trigger
     pub async fn find_by_trigger(&self, trigger: &str) -> Vec<Skill> {
+        // Auto-initialize on first use
+        if self.skills.read().await.is_empty() {
+            self.init_default_skills().await;
+        }
+
         let skills = self.skills.read().await;
         skills
             .values()

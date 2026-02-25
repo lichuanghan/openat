@@ -13,6 +13,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 pub use session::{Session, SessionManager};
+pub use openat_tools::skill::SkillManager;
 
 /// Message type for LLM
 #[derive(Debug, Clone)]
@@ -94,6 +95,7 @@ impl Message {
 pub struct AgentExecutor {
     provider: Arc<dyn openat_providers::LLMProvider>,
     session_manager: SessionManager,
+    skill_manager: SkillManager,
     system_prompt: String,
     workspace: PathBuf,
     bus: openat_runtime::MessageBus,
@@ -125,9 +127,14 @@ impl AgentExecutor {
         // Store tool config for dynamic tool loading
         let tool_config = config.tools.clone();
 
+        // Initialize skill manager with default skills
+        let skill_manager = SkillManager::new();
+        // Note: Skills will be initialized lazily on first use via ensure_initialized()
+
         Self {
             provider,
             session_manager: SessionManager::new(sessions_dir),
+            skill_manager,
             system_prompt,
             workspace,
             bus: bus.clone(),
@@ -177,11 +184,21 @@ You have access to tools that you can use:
             Session::new(session_key)
         });
 
+        // Check for matching skills
+        let skill_prompt = self.find_matching_skill(&msg.content).await;
+
         // Add user message to history
         session.add_message("user", &msg.content);
 
         // Build message history for LLM
-        let messages = self.build_message_history(&session);
+        let mut messages = self.build_message_history(&session);
+
+        // Prepend skill prompt if matched
+        if let Some(prompt) = skill_prompt {
+            if let Some(first_msg) = messages.first_mut() {
+                first_msg.content = format!("{}\n\n{}", prompt, first_msg.content);
+            }
+        }
 
         // Get tool definitions
         let tools = self.get_tool_definitions();
@@ -283,6 +300,20 @@ You have access to tools that you can use:
                 }
             }
         })
+    }
+
+    /// Find a matching skill for the given message content
+    async fn find_matching_skill(&self, content: &str) -> Option<String> {
+        let skills = self.skill_manager.find_by_trigger(content).await;
+
+        if let Some(skill) = skills.first() {
+            tracing::info!("Skill triggered: {} (id: {})", skill.name, skill.id);
+            tracing::debug!("Skill prompt: {}", skill.prompt);
+            return Some(skill.prompt.clone());
+        }
+
+        tracing::debug!("No skill matched for content: {}", &content[..content.len().min(50)]);
+        None
     }
 
     /// Get tool definitions for the LLM based on config.
