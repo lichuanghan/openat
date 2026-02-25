@@ -503,6 +503,9 @@ async fn agent_stream(message: &str) -> Result<()> {
     // Create agent executor
     let executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
 
+    // Initialize skills (load from workspace)
+    executor.init_skills().await;
+
     // Create a test inbound message
     let inbound = openat_types::InboundMessage::new("cli", "user", "cli", message);
 
@@ -558,6 +561,9 @@ async fn agent(message: &str) -> Result<()> {
     // Create agent executor
     let mut executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
 
+    // Initialize skills (load from workspace)
+    executor.init_skills().await;
+
     // Create a test inbound message
     let inbound = openat_types::InboundMessage::new("cli", "user", "cli", message);
 
@@ -594,10 +600,13 @@ async fn agent_interactive() -> Result<()> {
     // Create agent executor
     let mut executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
 
+    // Initialize skills (load from workspace)
+    executor.init_skills().await;
+
     println!("输入你的消息，回车发送。Ctrl+C 退出。\n");
 
     // Simple loop for input
-    use std::io::{self, BufRead, Write};
+    use std::io::{self, Write};
 
     let stdin = io::stdin();
     loop {
@@ -650,6 +659,9 @@ async fn agent_interactive_stream() -> Result<()> {
 
     // Create agent executor
     let executor = openat_agent::AgentExecutor::new(provider, &config, &bus);
+
+    // Initialize skills (load from workspace)
+    executor.init_skills().await;
 
     println!("输入你的消息，回车发送。Ctrl+C 退出。\n");
 

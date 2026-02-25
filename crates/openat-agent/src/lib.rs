@@ -129,19 +129,29 @@ impl AgentExecutor {
 
         // Initialize skill manager with default skills
         let skill_manager = SkillManager::new();
-        // Note: Skills will be initialized lazily on first use via ensure_initialized()
+        // Note: Skills will be initialized lazily on first use
 
         Self {
             provider,
-            session_manager: SessionManager::new(sessions_dir),
-            skill_manager,
+            session_manager: SessionManager::new(sessions_dir.clone()),
+            skill_manager: skill_manager.clone(),
             system_prompt,
-            workspace,
+            workspace: sessions_dir.parent().unwrap().to_path_buf(),
             bus: bus.clone(),
             max_history_messages: 20,
             model,
             tool_config,
         }
+    }
+
+    /// Load skills from workspace on initialization
+    pub async fn init_skills(&self) {
+        // Initialize default skills
+        self.skill_manager.init_default_skills().await;
+
+        // Load skills from workspace
+        let workspace = openat_config::workspace_path();
+        self.skill_manager.load_from_workspace(&workspace).await;
     }
 
     /// Build the system prompt for the agent.

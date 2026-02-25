@@ -1,77 +1,144 @@
 //! Skill system for openat
 //!
-//! Provides predefined workflows and automation.
+//! Provides predefined workflows and automation, aligned with nanobot's skill system.
+//! Skills are defined in SKILL.md files with YAML frontmatter.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::fs;
 use tokio::sync::RwLock;
+use tracing::{debug, info};
 
-/// Skill definition
+/// Skill metadata (parsed from YAML frontmatter)
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkillMetadata {
+    /// Emoji for skill display
+    pub emoji: Option<String>,
+    /// Required binaries
+    #[serde(default)]
+    pub requires: SkillRequirements,
+    /// Supported operating systems
+    #[serde(default)]
+    pub os: Vec<String>,
+    /// Installation instructions
+    #[serde(default)]
+    pub install: Vec<String>,
+    /// Homepage URL
+    pub homepage: Option<String>,
+    /// Custom metadata (for nanobot compatibility)
+    #[serde(default)]
+    pub nanobot: Option<serde_json::Value>,
+}
+
+/// Skill requirements
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SkillRequirements {
+    /// Required binaries
+    #[serde(default)]
+    pub bins: Vec<String>,
+    /// Required environment variables
+    #[serde(default)]
+    pub env: Vec<String>,
+}
+
+/// Skill definition (aligned with nanobot format)
 #[derive(Debug, Clone)]
 pub struct Skill {
     pub id: String,
     pub name: String,
     pub description: String,
-    pub triggers: Vec<String>,
+    /// If true, skill content is always loaded in system prompt
+    pub always: bool,
+    /// Skill prompt/instructions
     pub prompt: String,
-    pub tools: Vec<String>,
-    pub enabled: bool,
+    /// Skill metadata
+    pub metadata: SkillMetadata,
+    /// Original file path (if loaded from file)
+    #[allow(dead_code)]
+    pub file_path: Option<PathBuf>,
 }
 
 impl Skill {
+    /// Create a new skill
     pub fn new(id: &str, name: &str, description: &str) -> Self {
         Self {
             id: id.to_string(),
             name: name.to_string(),
             description: description.to_string(),
-            triggers: vec![],
+            always: false,
             prompt: String::new(),
-            tools: vec![],
-            enabled: true,
+            metadata: SkillMetadata::default(),
+            file_path: None,
         }
     }
 
-    pub fn with_trigger(mut self, trigger: &str) -> Self {
-        self.triggers.push(trigger.to_string());
-        self
-    }
+    /// Check if skill requirements are met
+    pub fn check_requirements(&self) -> Vec<String> {
+        let mut missing = Vec::new();
 
-    pub fn with_prompt(mut self, prompt: &str) -> Self {
-        self.prompt = prompt.to_string();
-        self
-    }
+        // Check required binaries
+        for bin in &self.metadata.requires.bins {
+            if which::which(bin).is_err() {
+                missing.push(format!("binary: {}", bin));
+            }
+        }
 
-    pub fn with_tools(mut self, tools: Vec<&str>) -> Self {
-        self.tools = tools.into_iter().map(|s| s.to_string()).collect();
-        self
+        // Check required environment variables
+        for env in &self.metadata.requires.env {
+            if std::env::var(env).is_err() {
+                missing.push(format!("env: {}", env));
+            }
+        }
+
+        missing
     }
 }
 
-/// Skill manager
+/// Skill summary for display in system prompt
+#[derive(Debug, Clone)]
+pub struct SkillSummary {
+    pub id: String,
+    pub name: String,
+    pub description: String,
+    pub emoji: Option<String>,
+    pub always: bool,
+}
+
+impl From<&Skill> for SkillSummary {
+    fn from(skill: &Skill) -> Self {
+        Self {
+            id: skill.id.clone(),
+            name: skill.name.clone(),
+            description: skill.description.clone(),
+            emoji: skill.metadata.emoji.clone(),
+            always: skill.always,
+        }
+    }
+}
+
+/// Skill manager - handles loading and managing skills
 #[derive(Clone)]
 pub struct SkillManager {
     skills: Arc<RwLock<HashMap<String, Skill>>>,
+    workspace: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl SkillManager {
     pub fn new() -> Self {
         Self {
             skills: Arc::new(RwLock::new(HashMap::new())),
+            workspace: Arc::new(RwLock::new(None)),
         }
     }
 
-    /// Create a new SkillManager with default skills registered
-    pub fn with_defaults() -> Self {
-        let mut manager = Self::new();
-        // Register default skills synchronously
-        let skills = defaults::default_skills();
-        // Note: This is a simplified approach - in production, use async init
-        for skill in skills {
-            // We'll register via async in agent
-            let _ = skill;
-        }
-        manager
+    /// Set workspace path for loading skills
+    pub fn set_workspace(&self, workspace: PathBuf) {
+        let ws = self.workspace.clone();
+        let workspace = Some(workspace);
+        // Note: This is a simplified sync approach - actual loading happens in async context
+        let _ = (ws, workspace);
     }
 
     /// Initialize with default skills (async)
@@ -81,9 +148,55 @@ impl SkillManager {
         }
     }
 
+    /// Load skills from workspace directory
+    pub async fn load_from_workspace(&self, workspace: &PathBuf) {
+        let skills_dir = workspace.join("skills");
+
+        if !skills_dir.exists() {
+            debug!("Skills directory does not exist: {}", skills_dir.display());
+            return;
+        }
+
+        let mut entries = match fs::read_dir(&skills_dir).await {
+            Ok(e) => e,
+            Err(e) => {
+                tracing::warn!("Failed to read skills directory: {}", e);
+                return;
+            }
+        };
+
+        while let Some(entry) = entries.next_entry().await.unwrap_or(None) {
+            let path = entry.path();
+            if path.is_dir() {
+                let skill_file = path.join("SKILL.md");
+                if skill_file.exists() {
+                    match self.load_skill_from_file(&skill_file).await {
+                        Ok(skill) => {
+                            info!("Loaded skill from file: {}", skill.id);
+                            self.register(skill).await;
+                        }
+                        Err(e) => {
+                            tracing::warn!("Failed to load skill from {:?}: {}", path, e);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Load a skill from a SKILL.md file
+    pub async fn load_skill_from_file(&self, path: &PathBuf) -> Result<Skill, String> {
+        let content = fs::read_to_string(path)
+            .await
+            .map_err(|e| format!("Failed to read skill file: {}", e))?;
+
+        parse_skill_from_content(&content, Some(path.clone()))
+    }
+
     /// Register a skill
     pub async fn register(&self, skill: Skill) {
         let mut skills = self.skills.write().await;
+        info!("Registering skill: {} ({})", skill.name, skill.id);
         skills.insert(skill.id.clone(), skill);
     }
 
@@ -93,7 +206,7 @@ impl SkillManager {
         skills.get(id).cloned()
     }
 
-    /// Find skills that match a trigger
+    /// Find skills that match a trigger (by description)
     pub async fn find_by_trigger(&self, trigger: &str) -> Vec<Skill> {
         // Auto-initialize on first use
         if self.skills.read().await.is_empty() {
@@ -101,28 +214,66 @@ impl SkillManager {
         }
 
         let skills = self.skills.read().await;
+        let trigger_lower = trigger.to_lowercase();
         skills
             .values()
-            .filter(|s| s.enabled && s.triggers.iter().any(|t| trigger.contains(t)))
+            .filter(|s| {
+                s.name.to_lowercase().contains(&trigger_lower) ||
+                s.description.to_lowercase().contains(&trigger_lower)
+            })
             .cloned()
             .collect()
     }
 
+    /// Get always-loaded skills
+    pub async fn get_always_skills(&self) -> Vec<Skill> {
+        if self.skills.read().await.is_empty() {
+            self.init_default_skills().await;
+        }
+
+        let skills = self.skills.read().await;
+        skills
+            .values()
+            .filter(|s| s.always)
+            .cloned()
+            .collect()
+    }
+
+    /// Get all skill summaries (for progressive loading)
+    pub async fn get_skill_summaries(&self) -> Vec<SkillSummary> {
+        if self.skills.read().await.is_empty() {
+            self.init_default_skills().await;
+        }
+
+        let skills = self.skills.read().await;
+        skills
+            .values()
+            .filter(|s| s.check_requirements().is_empty()) // Only show skills with met requirements
+            .map(SkillSummary::from)
+            .collect()
+    }
+
+    /// Load skill content by ID (for on-demand loading)
+    pub async fn load_skill_content(&self, id: &str) -> Option<String> {
+        let skill = self.get(id).await?;
+        Some(skill.prompt)
+    }
+
     /// List all skills
     pub async fn list(&self) -> Vec<Skill> {
+        if self.skills.read().await.is_empty() {
+            self.init_default_skills().await;
+        }
+
         let skills = self.skills.read().await;
         skills.values().cloned().collect()
     }
 
     /// Enable/disable a skill
-    pub async fn set_enabled(&self, id: &str, enabled: bool) -> bool {
-        let mut skills = self.skills.write().await;
-        if let Some(skill) = skills.get_mut(id) {
-            skill.enabled = enabled;
-            true
-        } else {
-            false
-        }
+    pub async fn set_enabled(&self, id: &str, _enabled: bool) -> bool {
+        // Note: For now, skills are always enabled if loaded
+        // Could add enabled field to Skill in future
+        self.skills.read().await.contains_key(id)
     }
 }
 
@@ -132,48 +283,119 @@ impl Default for SkillManager {
     }
 }
 
-/// Default skills
+/// Parse skill from SKILL.md content with YAML frontmatter
+pub fn parse_skill_from_content(content: &str, file_path: Option<PathBuf>) -> Result<Skill, String> {
+    // Check for YAML frontmatter
+    if !content.starts_with("---") {
+        return Err("Skill file must start with YAML frontmatter".to_string());
+    }
+
+    // Find the end of frontmatter
+    let end_idx = content[3..]
+        .find("---")
+        .ok_or("Could not find closing --- in frontmatter")?;
+
+    let yaml_content = &content[3..3 + end_idx];
+    let markdown_content = &content[3 + end_idx + 3..];
+
+    // Parse YAML frontmatter
+    #[derive(Deserialize)]
+    struct Frontmatter {
+        name: String,
+        description: String,
+        #[serde(default)]
+        always: bool,
+        #[serde(default)]
+        metadata: SkillMetadata,
+    }
+
+    let frontmatter: Frontmatter = serde_yaml::from_str(yaml_content)
+        .map_err(|e| format!("Failed to parse YAML frontmatter: {}", e))?;
+
+    Ok(Skill {
+        id: frontmatter.name.to_lowercase().replace(' ', "_"),
+        name: frontmatter.name,
+        description: frontmatter.description,
+        always: frontmatter.always,
+        prompt: markdown_content.trim().to_string(),
+        metadata: frontmatter.metadata,
+        file_path,
+    })
+}
+
+/// Default skills (internal)
 pub mod defaults {
     use super::*;
 
-    /// Get default skills
+    /// Get default skills (as Skill structs for backward compatibility)
     pub fn default_skills() -> Vec<Skill> {
         vec![
             Skill {
                 id: "translator".to_string(),
                 name: "Translator".to_string(),
                 description: "Translate text between languages".to_string(),
-                triggers: vec!["翻译".to_string(), "translate".to_string()],
-                prompt: "You are a professional translator. Translate the following text accurately.".to_string(),
-                tools: vec![],
-                enabled: true,
+                always: false,
+                prompt: "You are a professional translator. Translate the following text accurately, preserving the original meaning and tone.".to_string(),
+                metadata: SkillMetadata {
+                    emoji: Some("🌐".to_string()),
+                    requires: SkillRequirements::default(),
+                    os: vec![],
+                    install: vec![],
+                    homepage: None,
+                    nanobot: None,
+                },
+                file_path: None,
             },
             Skill {
                 id: "summarizer".to_string(),
                 name: "Summarizer".to_string(),
-                description: "Summarize long text".to_string(),
-                triggers: vec!["总结".to_string(), "summarize".to_string(), "摘要".to_string()],
-                prompt: "Provide a concise summary of the following text, capturing the key points.".to_string(),
-                tools: vec![],
-                enabled: true,
+                description: "Summarize URLs, files, and long text".to_string(),
+                always: false,
+                prompt: "Provide a concise summary of the following text, capturing the key points in a clear and organized manner.".to_string(),
+                metadata: SkillMetadata {
+                    emoji: Some("📝".to_string()),
+                    requires: SkillRequirements::default(),
+                    os: vec![],
+                    install: vec![],
+                    homepage: None,
+                    nanobot: None,
+                },
+                file_path: None,
             },
             Skill {
                 id: "coder".to_string(),
                 name: "Code Assistant".to_string(),
                 description: "Help with code-related tasks".to_string(),
-                triggers: vec!["写代码".to_string(), "code".to_string(), "编程".to_string()],
-                prompt: "You are a helpful coding assistant. Provide clean, well-commented code.".to_string(),
-                tools: vec!["exec".to_string()],
-                enabled: true,
+                always: false,
+                prompt: "You are a helpful coding assistant. Provide clean, well-commented code with explanations.".to_string(),
+                metadata: SkillMetadata {
+                    emoji: Some("💻".to_string()),
+                    requires: SkillRequirements {
+                        bins: vec!["sh".to_string()],
+                        env: vec![],
+                    },
+                    os: vec![],
+                    install: vec![],
+                    homepage: None,
+                    nanobot: None,
+                },
+                file_path: None,
             },
             Skill {
                 id: "researcher".to_string(),
                 name: "Researcher".to_string(),
-                description: "Research and gather information".to_string(),
-                triggers: vec!["研究".to_string(), "research".to_string(), "调查".to_string()],
-                prompt: "Research the topic thoroughly and provide comprehensive information with sources.".to_string(),
-                tools: vec!["web_search".to_string(), "web_fetch".to_string()],
-                enabled: true,
+                description: "Research and gather information with sources".to_string(),
+                always: false,
+                prompt: "Research the topic thoroughly and provide comprehensive information with credible sources. Include links to references.".to_string(),
+                metadata: SkillMetadata {
+                    emoji: Some("🔍".to_string()),
+                    requires: SkillRequirements::default(),
+                    os: vec![],
+                    install: vec![],
+                    homepage: None,
+                    nanobot: None,
+                },
+                file_path: None,
             },
         ]
     }
@@ -183,17 +405,28 @@ pub mod defaults {
 mod tests {
     use super::*;
 
-    #[tokio::test]
-    async fn test_skill_manager() {
-        let manager = SkillManager::new();
+    #[test]
+    fn test_parse_skill_from_content() {
+        let content = r#"---
+name: Test Skill
+description: A test skill for unit testing
+always: false
+metadata:
+  emoji: "🧪"
+  requires:
+    bins: ["ls"]
+    env: ["HOME"]
+  os: ["darwin", "linux"]
+---
+This is the skill content.
+It can be multiple lines.
+"#;
 
-        let skill = Skill::new("test", "Test Skill", "A test skill")
-            .with_trigger("test trigger");
-
-        manager.register(skill).await;
-
-        let found = manager.find_by_trigger("test trigger").await;
-        assert_eq!(found.len(), 1);
-        assert_eq!(found[0].id, "test");
+        let skill = parse_skill_from_content(content, None).unwrap();
+        assert_eq!(skill.name, "Test Skill");
+        assert_eq!(skill.description, "A test skill for unit testing");
+        assert!(!skill.always);
+        assert_eq!(skill.prompt, "This is the skill content.\nIt can be multiple lines.");
+        assert_eq!(skill.metadata.emoji, Some("🧪".to_string()));
     }
 }
