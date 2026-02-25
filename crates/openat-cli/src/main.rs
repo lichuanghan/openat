@@ -232,6 +232,12 @@ async fn gateway(port: u16) -> Result<()> {
     let bus = openat_runtime::MessageBus::new();
     let executor = Arc::new(tokio::sync::Mutex::new(openat_agent::AgentExecutor::new(provider, &config, &bus)));
 
+    // Initialize skills (load from workspace)
+    {
+        let mut exec = executor.lock().await;
+        exec.init_skills().await;
+    }
+
     // Start Discord channel if enabled
     if config.channels.discord.enabled {
         let mut discord = openat_channels::DiscordChannel::new(config.channels.discord.clone());
