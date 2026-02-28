@@ -146,7 +146,34 @@ impl QQChannel {
     }
 
     /// Get the WebSocket gateway URL
+    /// If token is expired, automatically refresh and retry
     async fn get_gateway_url(&self) -> Result<String, String> {
+        // Try to get gateway URL with current token
+        match self.get_gateway_url_inner().await {
+            Ok(url) => Ok(url),
+            Err(e) => {
+                // Check if it's a token expiration error
+                if e.contains("token not exist") || e.contains("token expired") ||
+                   e.contains("11244") || e.contains("invalid_token") {
+                    warn!("QQ token expired, refreshing...");
+
+                    // Refresh token
+                    if let Err(refresh_err) = self.refresh_token().await {
+                        return Err(format!("Token refresh failed: {}", refresh_err));
+                    }
+
+                    // Retry with new token
+                    info!("Retrying gateway URL with new token...");
+                    self.get_gateway_url_inner().await
+                } else {
+                    Err(e)
+                }
+            }
+        }
+    }
+
+    /// Internal method to get gateway URL (without token refresh logic)
+    async fn get_gateway_url_inner(&self) -> Result<String, String> {
         let token = self.access_token.lock().await.clone();
         let url = format!("{}/gateway/bot", self.api_base());
         debug!("Fetching QQ gateway URL from: {}", url);

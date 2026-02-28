@@ -120,6 +120,8 @@ enum Commands {
     },
     /// Test streaming response
     TestStream { message: String },
+    /// Test plugin system
+    TestPlugin,
     /// Show channel status
     ChannelStatus,
     /// Login/link a channel
@@ -176,6 +178,7 @@ async fn main() -> Result<()> {
             }
         }
         Commands::TestStream { message } => test_stream(&message).await?,
+        Commands::TestPlugin => test_plugin()?,
         Commands::ChannelStatus => channel_status()?,
         Commands::ChannelLogin { channel } => channel_login(channel.as_deref()).await?,
         Commands::CronList { all } => cron_list(all)?,
@@ -474,6 +477,68 @@ struct ChatRequest {
 /// Test streaming response from the agent
 async fn test_stream(message: &str) -> Result<()> {
     agent_stream(message).await
+}
+
+/// Test plugin system
+fn test_plugin() -> Result<()> {
+    use openat_tools::prelude::*;
+
+    println!("=== Plugin System Test ===\n");
+
+    // Create a tool registry
+    let _registry = ToolRegistry::new();
+
+    // Register built-in tools
+    let tools = openat_tools::plugin::builtins::default_tools();
+    println!("Registered {} built-in tools:", tools.len());
+    for tool in &tools {
+        println!("  - {} - {:?}", tool.name, tool.category);
+    }
+
+    // Create a sample plugin
+    struct HelloPlugin;
+
+    impl Plugin for HelloPlugin {
+        fn meta(&self) -> PluginMeta {
+            PluginMeta {
+                id: "hello".to_string(),
+                name: "Hello Plugin".to_string(),
+                version: "1.0.0".to_string(),
+                description: "A sample plugin".to_string(),
+                author: "OpenAT".to_string(),
+            }
+        }
+
+        fn tools(&self) -> Vec<ToolSpec> {
+            // Create parameters JSON manually
+            let mut properties = serde_json::Map::new();
+            properties.insert("name".to_string(), serde_json::json!({
+                "type": "string",
+                "description": "Name to greet"
+            }));
+            let params = serde_json::json!({
+                "type": "object",
+                "properties": properties
+            });
+
+            vec![ToolSpec {
+                name: "hello".to_string(),
+                description: "Say hello".to_string(),
+                parameters: params,
+                category: ToolCategory::General,
+                enabled: true,
+            }]
+        }
+    }
+
+    println!("\n=== Sample Plugin ===");
+    let plugin = HelloPlugin;
+    println!("Plugin: {}", plugin.meta().name);
+    println!("Tools: {:?}", plugin.tools().iter().map(|t| t.name.clone()).collect::<Vec<_>>());
+
+    println!("\n✅ Plugin system test complete!");
+
+    Ok(())
 }
 
 /// Get agent name prefix for display
