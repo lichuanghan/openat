@@ -28,3 +28,4 @@ openat-tools = { path = "../openat-tools" }
 openat-channels = { path = "../openat-channels" }
 openat-providers = { path = "../openat-providers" }
 openat-agent = { path = "../openat-agent" }
+openat-mcp = { path = "../openat-mcp" }

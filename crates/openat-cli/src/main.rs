@@ -151,6 +151,20 @@ enum Commands {
     Status,
     /// Initialize default config
     Init,
+    /// Start as MCP server
+    Mcp {
+        /// Transport: stdio or http
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// HTTP port (if transport=http)
+        #[arg(long)]
+        port: Option<u16>,
+    },
+    /// Connect to MCP server
+    McpConnect {
+        /// Server URL (e.g., http://localhost:8080)
+        server_url: String,
+    },
 }
 
 #[tokio::main]
@@ -193,6 +207,8 @@ async fn main() -> Result<()> {
         }
         Commands::Status => status()?,
         Commands::Init => init_config()?,
+        Commands::Mcp { transport, port } => mcp_server(&transport, port).await?,
+        Commands::McpConnect { server_url } => mcp_connect(&server_url).await?,
     }
 
     Ok(())
@@ -872,6 +888,74 @@ fn status() -> Result<()> {
     // Check for API keys
     let has_key = config.get_api_key().is_some();
     println!("  LLM:      {}", if has_key { "configured" } else { "not configured" });
+    Ok(())
+}
+
+/// Start MCP server
+async fn mcp_server(transport: &str, port: Option<u16>) -> Result<()> {
+    use openat_mcp::server;
+    use openat_tools::prelude::*;
+    use std::path::PathBuf;
+
+    tracing::info!("Starting MCP server with transport: {}", transport);
+
+    // Create tool registry and register built-in tools
+    let registry = ToolRegistry::new();
+
+    // Register built-in tools
+    let file_tool = FileTool::new(None::<PathBuf>);
+    registry.register(file_tool).await;
+
+    let exec_tool = ExecTool::new(None::<String>);
+    registry.register(exec_tool).await;
+
+    // Register web tool if API key is available
+    let config = openat_config::Config::load();
+    if let Some(api_key) = config.get_api_key() {
+        let web_tool = WebTool::new(api_key.to_string());
+        registry.register(web_tool).await;
+    }
+
+    match transport {
+        "stdio" => {
+            server::run_stdio_server(registry).await?;
+        }
+        "http" => {
+            let port = port.unwrap_or(18791);
+            server::run_http_server(port, registry).await?;
+        }
+        _ => {
+            anyhow::bail!("Unknown transport: {}. Use 'stdio' or 'http'", transport);
+        }
+    }
+
+    Ok(())
+}
+
+/// Connect to MCP server
+async fn mcp_connect(server_url: &str) -> Result<()> {
+    use openat_mcp::client::HttpMcpClient;
+
+    tracing::info!("Connecting to MCP server: {}", server_url);
+
+    let mut client = HttpMcpClient::new(server_url);
+
+    // Initialize connection
+    client.initialize().await?;
+
+    // List available tools
+    println!("\nAvailable tools from MCP server:");
+    let tools = client.list_tools().await?;
+
+    for tool in &tools {
+        println!("  - {}: {}", tool.name, tool.description);
+    }
+
+    println!("\nConnected to MCP server: {} v{}",
+        client.server_info().map(|s| s.name.as_str()).unwrap_or("unknown"),
+        client.server_info().map(|s| s.version.as_str()).unwrap_or("unknown")
+    );
+
     Ok(())
 }
 

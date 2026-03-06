@@ -13,6 +13,7 @@
       <sourceFolder url="file://$MODULE_DIR$/crates/openat-runtime/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/openat-tools/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/crates/openat-types/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/crates/openat-mcp/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/target" />
     </content>
     <orderEntry type="inheritedJdk" />

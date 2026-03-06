@@ -10,6 +10,7 @@ members = [
     "crates/openat-providers",
     "crates/openat-agent",
     "crates/openat-cli",
+    "crates/openat-mcp",
 ]
 
 [workspace.dependencies]
