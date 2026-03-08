@@ -127,21 +127,40 @@ enum Commands {
     /// Login/link a channel
     ChannelLogin { channel: Option<String> },
     /// List scheduled jobs
-    CronList { all: bool },
+    CronList {
+        /// Show all jobs including disabled
+        #[arg(long)]
+        all: bool,
+    },
     /// Add a scheduled job
     CronAdd {
         name: String,
         message: String,
+        /// Run every N seconds
+        #[arg(long)]
         every: Option<u64>,
+        /// Cron expression (e.g., "0 9 * * *")
+        #[arg(long)]
         cron: Option<String>,
+        /// Deliver immediately without queuing
+        #[arg(long)]
         deliver: bool,
+        /// Target channel/user
+        #[arg(long)]
         to: Option<String>,
+        /// Channel to deliver to
+        #[arg(long)]
         channel: Option<String>,
     },
     /// Remove a job
     CronRemove { job_id: String },
     /// Enable/disable a job
-    CronEnable { job_id: String, disable: bool },
+    CronEnable {
+        job_id: String,
+        /// Disable the job (use --disable to disable, omit to enable)
+        #[arg(long)]
+        disable: bool,
+    },
     /// Test Discord (send a message)
     DiscordTest {
         channel_id: String,
@@ -195,12 +214,12 @@ async fn main() -> Result<()> {
         Commands::TestPlugin => test_plugin()?,
         Commands::ChannelStatus => channel_status()?,
         Commands::ChannelLogin { channel } => channel_login(channel.as_deref()).await?,
-        Commands::CronList { all } => cron_list(all)?,
+        Commands::CronList { all } => cron_list(all).await?,
         Commands::CronAdd { name, message, every, cron, deliver, to, channel } => {
-            cron_add(&name, &message, every, cron.as_deref(), deliver, to.as_deref(), channel.as_deref())?
+            cron_add(&name, &message, every, cron.as_deref(), deliver, to.as_deref(), channel.as_deref()).await?
         }
-        Commands::CronRemove { job_id } => cron_remove(&job_id)?,
-        Commands::CronEnable { job_id, disable } => cron_enable(&job_id, disable)?,
+        Commands::CronRemove { job_id } => cron_remove(&job_id).await?,
+        Commands::CronEnable { job_id, disable } => cron_enable(&job_id, disable).await?,
         Commands::DiscordTest { channel_id, message } => {
             let content = message.unwrap_or_else(|| "Test message from openat!".to_string());
             discord_test(&channel_id, &content).await?
@@ -253,8 +272,9 @@ async fn gateway(port: u16) -> Result<()> {
 
     // Initialize skills (load from workspace)
     {
-        let mut exec = executor.lock().await;
+        let exec = executor.lock().await;
         exec.init_skills().await;
+        exec.init_cron().await;
     }
 
     // Start Discord channel if enabled
@@ -829,43 +849,156 @@ async fn channel_login(channel: Option<&str>) -> Result<()> {
 }
 
 /// List scheduled jobs
-fn cron_list(all: bool) -> Result<()> {
+async fn cron_list(all: bool) -> Result<()> {
     tracing::info!("Listing cron jobs (all: {})", all);
-    println!("Cron jobs (feature not yet implemented)");
+
+    let bus = openat_runtime::MessageBus::new();
+    let cron_store_path = openat_config::workspace_path().join("cron").join("jobs.json");
+
+    let service = openat_agent::CronService::new(cron_store_path, bus);
+    service.load().await.ok();
+
+    let jobs = service.list_jobs().await;
+
+    if jobs.is_empty() {
+        println!("No cron jobs scheduled.");
+        return Ok(());
+    }
+
+    println!("\n📅 Cron Jobs:\n");
+    for job in &jobs {
+        let schedule_str = match job.schedule.kind {
+            openat_agent::ScheduleKind::At => format!("at {}", job.schedule.at_ms.unwrap_or(0)),
+            openat_agent::ScheduleKind::Every => format!("every {}s", job.schedule.every_ms.unwrap_or(0) / 1000),
+            openat_agent::ScheduleKind::Cron => job.schedule.expr.clone().unwrap_or_default(),
+        };
+        println!(
+            "  {} - {} [{}] ({})",
+            job.id,
+            job.payload.message,
+            schedule_str,
+            if job.enabled { "enabled" } else { "disabled" }
+        );
+    }
+    println!();
+
     Ok(())
 }
 
 /// Add a scheduled job
-fn cron_add(
+async fn cron_add(
     name: &str,
     message: &str,
     every: Option<u64>,
     cron: Option<&str>,
-    deliver: bool,
+    _deliver: bool,
     to: Option<&str>,
     channel: Option<&str>,
 ) -> Result<()> {
     tracing::info!(
-        "Adding cron job: name={}, message={}, every={:?}, cron={:?}, deliver={}, to={:?}, channel={:?}",
-        name, message, every, cron, deliver, to, channel
+        "Adding cron job: name={}, message={}, every={:?}, cron={:?}, to={:?}, channel={:?}",
+        name, message, every, cron, to, channel
     );
-    println!("Cron job added (feature not yet implemented)");
+
+    let bus = openat_runtime::MessageBus::new();
+    let cron_store_path = openat_config::workspace_path().join("cron").join("jobs.json");
+
+    let service = openat_agent::CronService::new(cron_store_path, bus);
+    service.load().await.ok();
+
+    // Build schedule
+    let schedule = if let Some(every_secs) = every {
+        openat_agent::CronSchedule {
+            kind: openat_agent::ScheduleKind::Every,
+            at_ms: None,
+            every_ms: Some((every_secs * 1000) as i64),
+            expr: None,
+            tz: None,
+        }
+    } else if let Some(cron_expr) = cron {
+        openat_agent::CronSchedule {
+            kind: openat_agent::ScheduleKind::Cron,
+            at_ms: None,
+            every_ms: None,
+            expr: Some(cron_expr.to_string()),
+            tz: None,
+        }
+    } else {
+        anyhow::bail!("Either --every or --cron must be specified");
+    };
+
+    // Build payload
+    let payload = openat_agent::CronPayload {
+        message: message.to_string(),
+        channel: Some(channel.unwrap_or("cli").to_string()),
+        to: Some(to.unwrap_or("direct").to_string()),
+    };
+
+    // Add job
+    let job_id = service.add_job(name.to_string(), schedule, payload).await;
+
+    // Save
+    service.save().await?;
+
+    println!("✅ Cron job added successfully!");
+    println!("   Job ID: {}", job_id);
+    println!("   Name: {}", name);
+    println!("   Message: {}", message);
+    if let Some(every_secs) = every {
+        println!("   Interval: {} seconds", every_secs);
+    }
+    if let Some(cron_expr) = cron {
+        println!("   Cron: {}", cron_expr);
+    }
+
     Ok(())
 }
 
 /// Remove a job
-fn cron_remove(job_id: &str) -> Result<()> {
+async fn cron_remove(job_id: &str) -> Result<()> {
     tracing::info!("Removing cron job: {}", job_id);
-    println!("Cron job removed (feature not yet implemented)");
+
+    let bus = openat_runtime::MessageBus::new();
+    let cron_store_path = openat_config::workspace_path().join("cron").join("jobs.json");
+
+    let service = openat_agent::CronService::new(cron_store_path, bus);
+    service.load().await.ok();
+
+    // Remove job
+    let removed = service.remove_job(job_id).await;
+
+    if removed {
+        service.save().await?;
+        println!("✅ Cron job {} removed successfully!", job_id);
+    } else {
+        println!("❌ Cron job {} not found", job_id);
+    }
+
     Ok(())
 }
 
 /// Enable/disable a job
-fn cron_enable(job_id: &str, disable: bool) -> Result<()> {
+async fn cron_enable(job_id: &str, disable: bool) -> Result<()> {
     let action = if disable { "Disabling" } else { "Enabling" };
     let state = if disable { "disabled" } else { "enabled" };
     tracing::info!("{} cron job: {}", action, job_id);
-    println!("Cron job {} (feature not yet implemented)", state);
+
+    let bus = openat_runtime::MessageBus::new();
+    let cron_store_path = openat_config::workspace_path().join("cron").join("jobs.json");
+
+    let service = openat_agent::CronService::new(cron_store_path, bus);
+    service.load().await.ok();
+
+    // Enable/disable job
+    let result = service.set_job_enabled(job_id, !disable).await;
+
+    if result {
+        service.save().await?;
+        println!("✅ Cron job {} {}", job_id, state);
+    } else {
+        println!("❌ Cron job {} not found", job_id);
+    }
+
     Ok(())
 }
 
@@ -997,6 +1130,16 @@ fn create_provider(config: &openat_config::Config) -> Result<Arc<dyn openat_prov
         let provider = openat_providers::MiniMaxProvider::new(
             config.providers.minimax.api_key.clone(),
             config.providers.minimax.api_base.clone(),
+        );
+        return Ok(Arc::new(provider));
+    }
+
+    // Ollama: Local LLM (no API key required)
+    if !config.providers.ollama.api_base.is_some() || config.providers.ollama.api_base.as_ref().map_or(false, |s| !s.is_empty()) || config.providers.ollama.model.as_ref().map_or(false, |s| !s.is_empty()) {
+        let provider = openat_providers::OllamaProvider::new(
+            config.providers.ollama.api_base.clone(),
+            Some(config.providers.ollama.api_key.clone()),
+            config.providers.ollama.model.clone(),
         );
         return Ok(Arc::new(provider));
     }

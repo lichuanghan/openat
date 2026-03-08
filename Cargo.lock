@@ -1086,6 +1086,7 @@ dependencies = [
  "serde_json",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -1164,6 +1165,7 @@ dependencies = [
  "async-trait",
  "futures-util",
  "httparse",
+ "openat-config",
  "openat-tools",
  "reqwest",
  "serde",

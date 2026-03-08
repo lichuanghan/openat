@@ -33,6 +33,16 @@ pub struct Providers {
     pub zhipu: ProviderConfig,
     pub moonshot: ProviderConfig,
     pub vllm: ProviderConfig,
+    pub ollama: OllamaConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct OllamaConfig {
+    pub api_key: String,
+    pub api_base: Option<String>,
+    /// Default model to use
+    pub model: Option<String>,
 }
 
 // Agent configurations
@@ -79,6 +89,63 @@ pub struct Tools {
     pub filesystem: bool,
     pub shell: bool,
     pub web_fetch: bool,
+    // Subagent configuration
+    pub subagent: SubagentConfig,
+    // Cron configuration
+    pub cron: CronConfig,
+    // Memory configuration
+    pub memory: MemoryConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MemoryConfig {
+    /// Whether memory is enabled
+    pub enabled: bool,
+    /// Memory window size before consolidation
+    pub memory_window: usize,
+}
+
+impl Default for MemoryConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            memory_window: 50,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CronConfig {
+    /// Whether cron is enabled
+    pub enabled: bool,
+}
+
+impl Default for CronConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SubagentConfig {
+    /// Maximum iterations for subagent to run
+    pub max_iterations: usize,
+    /// Whether subagent is enabled
+    pub enabled: bool,
+}
+
+impl Default for SubagentConfig {
+    fn default() -> Self {
+        Self {
+            max_iterations: 15,
+            enabled: true,
+        }
+    }
 }
 
 impl Default for Tools {
@@ -90,6 +157,9 @@ impl Default for Tools {
             filesystem: true,   // Enable filesystem by default
             shell: false,       // Disable shell by default for security
             web_fetch: false,   // Disable web_fetch by default
+            subagent: SubagentConfig::default(),
+            cron: CronConfig::default(),
+            memory: MemoryConfig::default(),
         }
     }
 }
@@ -159,6 +229,39 @@ pub struct Channels {
     pub discord: Discord,
 }
 
+/// MCP server configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct McpServer {
+    /// Server name
+    pub name: String,
+    /// Transport type: "stdio", "sse", "streamable_http"
+    #[serde(rename = "type")]
+    pub transport_type: String,
+    /// Command for stdio transport
+    pub command: Option<String>,
+    /// Arguments for stdio transport
+    pub args: Vec<String>,
+    /// Environment variables for stdio transport
+    pub env: Option<std::collections::HashMap<String, String>>,
+    /// URL for HTTP transports
+    pub url: Option<String>,
+    /// Custom headers for HTTP transports
+    pub headers: Option<std::collections::HashMap<String, String>>,
+    /// Tool timeout in seconds
+    pub timeout: Option<u64>,
+}
+
+/// MCP configuration
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+pub struct Mcp {
+    /// Enable MCP support
+    pub enabled: bool,
+    /// List of MCP servers to connect
+    pub servers: Vec<McpServer>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
 pub struct Config {
@@ -166,6 +269,7 @@ pub struct Config {
     pub agents: Agents,
     pub tools: Tools,
     pub channels: Channels,
+    pub mcp: Mcp,
 }
 
 impl Config {
@@ -173,10 +277,9 @@ impl Config {
     pub fn load() -> Self {
         let path = config_path();
         tracing::debug!("Config path: {:?}", path);
-        tracing::debug!("Config exists: {}", path.exists());
 
-        if path.exists() {
-            if let Ok(content) = fs::read_to_string(&path) {
+        match fs::read_to_string(&path) {
+            Ok(content) => {
                 tracing::debug!("Config content length: {}", content.len());
                 match serde_json::from_str::<Config>(&content) {
                     Ok(config) => {
@@ -187,6 +290,12 @@ impl Config {
                         tracing::debug!("Config parse failed: {}", e);
                     }
                 }
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!("Config file not found, using defaults");
+            }
+            Err(e) => {
+                tracing::debug!("Failed to read config: {}", e);
             }
         }
         tracing::debug!("Using default config");

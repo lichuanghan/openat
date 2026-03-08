@@ -14,6 +14,7 @@ pub mod openrouter;
 pub mod groq;
 pub mod gemini;
 pub mod minimax;
+pub mod ollama;
 
 pub use openai_compat::{OpenAICompatConfig, OpenAICompatProvider};
 pub use anthropic::AnthropicProvider;
@@ -21,6 +22,7 @@ pub use openrouter::OpenRouterProvider;
 pub use groq::GroqProvider;
 pub use gemini::GeminiProvider;
 pub use minimax::MiniMaxProvider;
+pub use ollama::OllamaProvider;
 
 use async_trait::async_trait;
 use futures_util::Stream;

@@ -22,3 +22,4 @@ openat-runtime = { path = "../openat-runtime" }
 openat-config = { path = "../openat-config" }
 openat-providers = { path = "../openat-providers" }
 openat-tools = { path = "../openat-tools" }
+uuid = { workspace = true }

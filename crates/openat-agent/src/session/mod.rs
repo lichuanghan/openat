@@ -6,6 +6,8 @@
 //! - Message history with automatic trimming
 //! - JSONL file format for persistence
 //! - Thread-safe operations
+//! - In-memory cache for performance
+//! - Last consolidated tracking for memory integration
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -13,6 +15,8 @@ use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 /// A conversation session
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +31,9 @@ pub struct Session {
     pub updated_at: DateTime<Utc>,
     /// Optional metadata
     pub metadata: HashMap<String, String>,
+    /// Number of messages already consolidated to memory
+    #[serde(default)]
+    pub last_consolidated: usize,
 }
 
 /// A single message in a session
@@ -50,6 +57,7 @@ impl Session {
             created_at: now,
             updated_at: now,
             metadata: HashMap::new(),
+            last_consolidated: 0,
         }
     }
 
@@ -61,6 +69,31 @@ impl Session {
             timestamp: Utc::now(),
         });
         self.updated_at = Utc::now();
+    }
+
+    /// Get unconsolidated messages for LLM (since last consolidation)
+    pub fn get_unconsolidated(&self, max_messages: usize) -> Vec<HashMap<String, String>> {
+        let unconsolidated = &self.messages[self.last_consolidated..];
+        let sliced = if unconsolidated.len() > max_messages {
+            &unconsolidated[unconsolidated.len() - max_messages..]
+        } else {
+            unconsolidated
+        };
+
+        // Drop leading non-user messages to avoid orphaned tool_result blocks
+        let start_idx = sliced.iter()
+            .position(|m| m.role == "user")
+            .unwrap_or(0);
+
+        sliced[start_idx..]
+            .iter()
+            .map(|m| {
+                let mut map = HashMap::new();
+                map.insert("role".to_string(), m.role.clone());
+                map.insert("content".to_string(), m.content.clone());
+                map
+            })
+            .collect()
     }
 
     /// Get message history (optionally limited)
@@ -85,6 +118,7 @@ impl Session {
     /// Clear all messages
     pub fn clear(&mut self) {
         self.messages.clear();
+        self.last_consolidated = 0;
         self.updated_at = Utc::now();
     }
 
@@ -94,10 +128,12 @@ impl Session {
     }
 }
 
-/// Session manager - handles persistence
-#[derive(Debug, Clone)]
+/// Session manager - handles persistence with in-memory cache
+#[derive(Clone)]
 pub struct SessionManager {
     sessions_dir: PathBuf,
+    /// In-memory session cache
+    cache: Arc<RwLock<HashMap<String, Session>>>,
 }
 
 impl SessionManager {
@@ -107,7 +143,107 @@ impl SessionManager {
             tracing::warn!("Failed to create sessions directory: {}", e);
         }
 
-        Self { sessions_dir }
+        Self {
+            sessions_dir,
+            cache: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    /// Get or create a session (with cache)
+    pub async fn get_or_create(&self, key: &str) -> Session {
+        // Check cache first
+        {
+            let cache = self.cache.read().await;
+            if let Some(session) = cache.get(key) {
+                return session.clone();
+            }
+        }
+
+        // Load from disk if not in cache
+        let session = self.load(key).unwrap_or_else(|| Session::new(key.to_string()));
+
+        // Add to cache
+        let mut cache = self.cache.write().await;
+        cache.insert(key.to_string(), session.clone());
+
+        session
+    }
+
+    /// Save session to cache and disk
+    pub async fn save(&self, session: &Session) {
+        // Update cache
+        {
+            let mut cache = self.cache.write().await;
+            cache.insert(session.key.clone(), session.clone());
+        }
+
+        // Save to disk (blocking)
+        let session_clone = session.clone();
+        let sessions_dir = self.sessions_dir.clone();
+        std::thread::spawn(move || {
+            Self::save_to_disk_internal(&session_clone, &sessions_dir);
+        });
+    }
+
+    /// Internal: Save session to disk (sync)
+    fn save_to_disk_internal(session: &Session, sessions_dir: &PathBuf) {
+        let path = sessions_dir.join(format!("{}.jsonl", session.key.replace(":", "_")));
+
+        let mut file = match File::create(&path) {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::error!("Failed to create session file: {}", e);
+                return;
+            }
+        };
+
+        // Write metadata
+        let metadata_line = serde_json::json!({
+            "_type": "metadata",
+            "created_at": session.created_at.to_rfc3339(),
+            "updated_at": session.updated_at.to_rfc3339(),
+            "last_consolidated": session.last_consolidated,
+            "metadata": session.metadata
+        });
+
+        if let Err(e) = writeln!(file, "{}", metadata_line) {
+            tracing::error!("Failed to write metadata: {}", e);
+            return;
+        }
+
+        // Write messages
+        for msg in &session.messages {
+            if let Ok(line) = serde_json::to_string(msg) {
+                let _ = writeln!(file, "{}", line);
+            }
+        }
+    }
+
+    /// Remove session from cache and optionally from disk
+    pub async fn remove(&self, key: &str, delete_from_disk: bool) {
+        // Remove from cache
+        {
+            let mut cache = self.cache.write().await;
+            cache.remove(key);
+        }
+
+        // Optionally delete from disk
+        if delete_from_disk {
+            let _ = self.delete(key);
+        }
+    }
+
+    /// Get cached session count
+    pub async fn cache_size(&self) -> usize {
+        let cache = self.cache.read().await;
+        cache.len()
+    }
+
+    /// Clear all cached sessions (without deleting from disk)
+    pub async fn clear_cache(&self) {
+        let mut cache = self.cache.write().await;
+        cache.clear();
+        tracing::info!("Session cache cleared");
     }
 
     /// Get sessions directory
@@ -118,16 +254,15 @@ impl SessionManager {
     /// Load a session from disk
     pub fn load(&self, key: &str) -> Option<Session> {
         let path = self.get_session_path(key);
-        if !path.exists() {
-            return None;
-        }
 
         let mut messages = Vec::new();
         let mut created_at = Utc::now();
         let mut metadata = HashMap::new();
+        let mut last_consolidated = 0;
 
         let file = match File::open(&path) {
             Ok(f) => f,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return None,
             Err(_) => return None,
         };
 
@@ -144,6 +279,9 @@ impl SessionManager {
                             if let Ok(dt) = DateTime::parse_from_rfc3339(ts) {
                                 created_at = dt.with_timezone(&Utc);
                             }
+                        }
+                        if let Some(lc) = data.get("last_consolidated").and_then(|v| v.as_u64()) {
+                            last_consolidated = lc as usize;
                         }
                         if let Some(meta) = data.get("metadata").and_then(|v| v.as_object()) {
                             metadata = meta
@@ -176,49 +314,14 @@ impl SessionManager {
             created_at,
             updated_at: Utc::now(),
             metadata,
+            last_consolidated,
         })
-    }
-
-    /// Save a session to disk
-    pub fn save(&self, session: &Session) {
-        let path = self.get_session_path(&session.key);
-
-        let mut file = match File::create(&path) {
-            Ok(f) => f,
-            Err(e) => {
-                tracing::error!("Failed to create session file: {}", e);
-                return;
-            }
-        };
-
-        // Write metadata
-        let metadata_line = serde_json::json!({
-            "_type": "metadata",
-            "created_at": session.created_at.to_rfc3339(),
-            "updated_at": session.updated_at.to_rfc3339(),
-            "metadata": session.metadata
-        });
-
-        if let Err(e) = writeln!(file, "{}", metadata_line) {
-            tracing::error!("Failed to write metadata: {}", e);
-            return;
-        }
-
-        // Write messages
-        for msg in &session.messages {
-            if let Ok(line) = serde_json::to_string(&msg) {
-                let _ = writeln!(file, "{}", line);
-            }
-        }
     }
 
     /// Delete a session
     pub fn delete(&self, key: &str) -> bool {
         let path = self.get_session_path(key);
-        if path.exists() {
-            return fs::remove_file(path).is_ok();
-        }
-        false
+        fs::remove_file(path).is_ok()
     }
 
     fn get_session_path(&self, key: &str) -> PathBuf {

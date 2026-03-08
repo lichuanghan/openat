@@ -33,3 +33,4 @@ regex = "1.10"
 reqwest = { version = "0.11", features = ["json"] }
 chrono = { version = "0.4", features = ["serde"] }
 url = "2.5"
+uuid = { version = "1.0", features = ["v4"] }

@@ -15,6 +15,7 @@ tracing = { workspace = true }
 
 # Internal crates
 openat-tools = { path = "../openat-tools" }
+openat-config = { path = "../openat-config" }
 
 # Additional dependencies
 async-stream = "0.3"

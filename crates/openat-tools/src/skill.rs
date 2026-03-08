@@ -123,6 +123,7 @@ impl From<&Skill> for SkillSummary {
 pub struct SkillManager {
     skills: Arc<RwLock<HashMap<String, Skill>>>,
     workspace: Arc<RwLock<Option<PathBuf>>>,
+    skills_dir: Arc<RwLock<Option<PathBuf>>>,
 }
 
 impl SkillManager {
@@ -130,15 +131,177 @@ impl SkillManager {
         Self {
             skills: Arc::new(RwLock::new(HashMap::new())),
             workspace: Arc::new(RwLock::new(None)),
+            skills_dir: Arc::new(RwLock::new(None)),
         }
     }
 
     /// Set workspace path for loading skills
     pub fn set_workspace(&self, workspace: PathBuf) {
-        let ws = self.workspace.clone();
-        let workspace = Some(workspace);
-        // Note: This is a simplified sync approach - actual loading happens in async context
-        let _ = (ws, workspace);
+        let ws_lock = self.workspace.clone();
+        let sd_lock = self.skills_dir.clone();
+        let skills_dir = workspace.join("skills");
+        // Store workspace and skills_dir
+        tokio::spawn(async move {
+            *ws_lock.write().await = Some(workspace);
+            *sd_lock.write().await = Some(skills_dir);
+        });
+    }
+
+    /// Install a skill from a GitHub repository
+    pub async fn install_from_github(&self, repo_url: &str) -> Result<String, String> {
+        // Get skills directory
+        let skills_dir = self.skills_dir.read().await.clone()
+            .ok_or("Skills directory not set")?;
+
+        // Clone repository
+        let output = tokio::process::Command::new("git")
+            .args(["clone", repo_url])
+            .current_dir(&skills_dir)
+            .output()
+            .await
+            .map_err(|e| format!("Failed to execute git: {}", e))?;
+
+        if output.status.success() {
+            Ok("Skill installed successfully".to_string())
+        } else {
+            Err(format!("Failed to install skill: {}", String::from_utf8_lossy(&output.stderr)))
+        }
+    }
+
+    /// Uninstall a skill by ID
+    pub async fn uninstall(&self, skill_id: &str) -> Result<String, String> {
+        // Get skills directory
+        let skills_dir = self.skills_dir.read().await.clone()
+            .ok_or("Skills directory not set")?;
+
+        let skill_path = skills_dir.join(skill_id);
+
+        if !skill_path.exists() {
+            return Err(format!("Skill '{}' not found", skill_id));
+        }
+
+        // Remove directory
+        tokio::fs::remove_dir_all(&skill_path)
+            .await
+            .map_err(|e| format!("Failed to remove skill: {}", e))?;
+
+        // Remove from loaded skills
+        self.skills.write().await.remove(skill_id);
+
+        Ok(format!("Skill '{}' uninstalled", skill_id))
+    }
+
+    /// List installed skills (from filesystem)
+    pub async fn list_installed(&self) -> Vec<String> {
+        let skills_dir = match self.skills_dir.read().await.clone() {
+            Some(dir) => dir,
+            None => return vec![],
+        };
+
+        if !skills_dir.exists() {
+            return vec![];
+        }
+
+        let mut entries = match tokio::fs::read_dir(&skills_dir).await {
+            Ok(e) => e,
+            Err(_) => return vec![],
+        };
+
+        let mut skills = Vec::new();
+        while let Some(entry) = entries.next_entry().await.unwrap_or(None) {
+            let path = entry.path();
+            if path.is_dir() {
+                skills.push(entry.file_name().to_string_lossy().to_string());
+            }
+        }
+        skills
+    }
+
+    /// Search skills in ClawHub market (using npx)
+    pub async fn search_market(&self, query: &str, limit: usize) -> Result<String, String> {
+        let output = tokio::process::Command::new("npx")
+            .args(["--yes", "clawhub@latest", "search", query, "--limit", &limit.to_string()])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to search market: {}", e))?;
+
+        if output.status.success() {
+            Ok(String::from_utf8_lossy(&output.stdout).to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
+
+    /// Install skill from ClawHub market
+    pub async fn install_from_market(&self, slug: &str) -> Result<String, String> {
+        // Get skills directory
+        let skills_dir = self.skills_dir.read().await.clone()
+            .ok_or("Skills directory not set")?;
+
+        let output = tokio::process::Command::new("npx")
+            .args(["--yes", "clawhub@latest", "install", slug, "--workdir", &skills_dir.to_string_lossy()])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to install from market: {}", e))?;
+
+        if output.status.success() {
+            // Reload skills after install
+            self.load_from_workspace(&skills_dir).await;
+            Ok(format!("Skill '{}' installed from market", slug))
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
+
+    /// Update all skills from market
+    pub async fn update_all(&self) -> Result<String, String> {
+        // Get skills directory
+        let skills_dir = self.skills_dir.read().await.clone()
+            .ok_or("Skills directory not set")?;
+
+        let output = tokio::process::Command::new("npx")
+            .args(["--yes", "clawhub@latest", "update", "--all", "--workdir", &skills_dir.to_string_lossy()])
+            .output()
+            .await
+            .map_err(|e| format!("Failed to update skills: {}", e))?;
+
+        if output.status.success() {
+            // Reload skills after update
+            self.load_from_workspace(&skills_dir).await;
+            Ok("All skills updated".to_string())
+        } else {
+            Err(String::from_utf8_lossy(&output.stderr).to_string())
+        }
+    }
+
+    /// Get skill creation template
+    pub fn get_skill_template() -> String {
+        r#"---
+name: my-skill
+description: A description of what this skill does
+always: false
+metadata:
+  emoji: "🤖"
+  requires:
+    bins: []
+    env: []
+  os: []
+  install: []
+  homepage: null
+---
+
+# My Skill
+
+Your skill content here. This will be loaded when the skill is activated.
+
+## When to use
+
+Describe when this skill should be used.
+
+## Guidelines
+
+Provide specific instructions for the agent when using this skill.
+"#.to_string()
     }
 
     /// Initialize with default skills (async)
@@ -428,5 +591,63 @@ It can be multiple lines.
         assert!(!skill.always);
         assert_eq!(skill.prompt, "This is the skill content.\nIt can be multiple lines.");
         assert_eq!(skill.metadata.emoji, Some("🧪".to_string()));
+    }
+
+    #[test]
+    fn test_parse_skill_always_true() {
+        let content = r#"---
+name: Always Skill
+description: Always active skill
+always: true
+---
+This skill is always active.
+"#;
+
+        let skill = parse_skill_from_content(content, None).unwrap();
+        assert_eq!(skill.name, "Always Skill");
+        assert!(skill.always);
+    }
+
+    #[test]
+    fn test_parse_skill_requirements() {
+        let content = r#"---
+name: Requirements Skill
+description: Skill with requirements
+metadata:
+  requires:
+    bins: ["git", "node"]
+    env: ["PATH"]
+  os: ["linux"]
+---
+Skill content.
+"#;
+
+        let skill = parse_skill_from_content(content, None).unwrap();
+        assert_eq!(skill.metadata.requires.bins, vec!["git", "node"]);
+        assert_eq!(skill.metadata.requires.env, vec!["PATH"]);
+    }
+
+    #[tokio::test]
+    async fn test_skill_manager_new() {
+        let manager = SkillManager::new();
+        let count = manager.list().await.len();
+        // SkillManager auto-initializes default skills on first use
+        assert!(count > 0);
+    }
+
+    #[tokio::test]
+    async fn test_skill_manager_find_by_trigger() {
+        let manager = SkillManager::new();
+        // Should return empty vec for non-existent trigger
+        let result = manager.find_by_trigger("/nonexistent").await;
+        assert!(result.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_skill_manager_get() {
+        let manager = SkillManager::new();
+        // Should return None for non-existent skill
+        let result = manager.get("nonexistent").await;
+        assert!(result.is_none());
     }
 }

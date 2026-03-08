@@ -3,6 +3,10 @@
 //! Provides agent execution with tool support and message history.
 
 pub mod session;
+pub mod subagent;
+pub mod cron;
+pub mod memory;
+mod util;
 
 use futures_util::{Stream, StreamExt};
 use serde_json::{json, Value};
@@ -14,6 +18,8 @@ use tokio::fs;
 
 pub use session::{Session, SessionManager};
 pub use openat_tools::skill::SkillManager;
+pub use subagent::SubagentManager;
+pub use cron::{CronService, CronJob, CronSchedule, CronPayload, ScheduleKind};
 
 /// Message type for LLM
 #[derive(Debug, Clone)]
@@ -91,11 +97,13 @@ impl Message {
 }
 
 /// Agent executor that handles message processing with tools and history.
-#[derive(Clone)]
 pub struct AgentExecutor {
     provider: Arc<dyn openat_providers::LLMProvider>,
     session_manager: SessionManager,
     skill_manager: SkillManager,
+    subagent_manager: SubagentManager,
+    cron_service: Option<CronService>,
+    memory_store: Option<crate::memory::MemoryStore>,
     system_prompt: String,
     workspace: PathBuf,
     bus: openat_runtime::MessageBus,
@@ -131,10 +139,40 @@ impl AgentExecutor {
         let skill_manager = SkillManager::new();
         // Note: Skills will be initialized lazily on first use
 
+        // Initialize subagent manager
+        let subagent_manager = SubagentManager::new(
+            provider.clone(),
+            workspace.clone(),
+            model.clone(),
+            bus.clone(),
+            config.tools.subagent.max_iterations,
+            config.tools.subagent.enabled,
+        );
+
+        // Initialize cron service (optional, based on config)
+        let cron_service = if config.tools.cron.enabled {
+            let cron_store_path = openat_config::workspace_path().join("cron").join("jobs.json");
+            let service = CronService::new(cron_store_path, bus.clone());
+            Some(service)
+        } else {
+            None
+        };
+
+        // Initialize memory store (optional, based on config)
+        let memory_store = if config.tools.memory.enabled {
+            let store = crate::memory::MemoryStore::new(workspace.clone());
+            Some(store)
+        } else {
+            None
+        };
+
         Self {
             provider,
             session_manager: SessionManager::new(sessions_dir.clone()),
             skill_manager: skill_manager.clone(),
+            subagent_manager,
+            cron_service,
+            memory_store,
             system_prompt,
             workspace: sessions_dir.parent().unwrap().to_path_buf(),
             bus: bus.clone(),
@@ -152,6 +190,17 @@ impl AgentExecutor {
         // Load skills from workspace
         let workspace = openat_config::workspace_path();
         self.skill_manager.load_from_workspace(&workspace).await;
+    }
+
+    /// Initialize and start cron service
+    pub async fn init_cron(&self) {
+        if let Some(ref cron_service) = self.cron_service {
+            if let Err(e) = cron_service.load().await {
+                tracing::error!("Failed to load cron jobs: {}", e);
+            }
+            cron_service.start().await;
+            tracing::info!("Cron service started");
+        }
     }
 
     /// Build the system prompt for the agent.
@@ -198,7 +247,7 @@ You have access to tools that you can use:
         let skill_prompt = self.find_matching_skill(&msg.content).await;
 
         // Add user message to history
-        session.add_message("user", &msg.content);
+        session.add_message(util::role::USER, &msg.content);
 
         // Build message history for LLM
         let mut messages = self.build_message_history(&session);
@@ -218,10 +267,13 @@ You have access to tools that you can use:
 
         // Add assistant response to history
         let response_content = response.content.clone().unwrap_or_default();
-        session.add_message("assistant", &response_content);
+        session.add_message(util::role::ASSISTANT, &response_content);
 
-        // Save session
-        self.session_manager.save(&session);
+        // Save session (async, fire and forget)
+        let sm = self.session_manager.clone();
+        tokio::spawn(async move {
+            sm.save(&session).await;
+        });
 
         // Publish response to bus
         let mut outbound = openat_types::OutboundMessage::new(&msg.channel, &msg.chat_id, &response_content);
@@ -435,6 +487,104 @@ You have access to tools that you can use:
             ));
         }
 
+        // Subagent tool - spawn background subagent for complex tasks (if enabled in config)
+        if config.subagent.enabled {
+            tools.push(openat_types::ToolDefinition::new(
+                "spawn_subagent",
+                "Spawn a subagent to execute a task in the background. Use this for complex tasks that can run independently.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "task": {
+                            "type": "string",
+                            "description": "The task description for the subagent"
+                        },
+                        "label": {
+                            "type": "string",
+                            "description": "Optional label to identify this subagent task"
+                        }
+                    },
+                    "required": ["task"]
+                }),
+            ));
+            tools.push(openat_types::ToolDefinition::new(
+                "list_subagents",
+                "List all running subagents and their status.",
+                json!({
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }),
+            ));
+        }
+
+        // Cron tool - schedule reminders and recurring tasks (if enabled in config)
+        if config.cron.enabled {
+            tools.push(openat_types::ToolDefinition::new(
+                "cron",
+                "Schedule reminders and recurring tasks. Actions: add, list, remove.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "action": {
+                            "type": "string",
+                            "enum": ["add", "list", "remove"],
+                            "description": "Action to perform"
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "Reminder message (for add)"
+                        },
+                        "every_seconds": {
+                            "type": "integer",
+                            "description": "Interval in seconds (for recurring tasks)"
+                        },
+                        "cron_expr": {
+                            "type": "string",
+                            "description": "Cron expression like '0 9 * * *' (for scheduled tasks)"
+                        },
+                        "job_id": {
+                            "type": "string",
+                            "description": "Job ID (for remove)"
+                        }
+                    },
+                    "required": ["action"]
+                }),
+            ));
+        }
+
+        // Memory tools - save and recall memory (if enabled in config)
+        if config.memory.enabled {
+            tools.push(openat_types::ToolDefinition::new(
+                "save_memory",
+                "Save important information to long-term memory for future reference.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "content": {
+                            "type": "string",
+                            "description": "The important information to remember"
+                        }
+                    },
+                    "required": ["content"]
+                }),
+            ));
+            tools.push(openat_types::ToolDefinition::new(
+                "recall_memory",
+                "Search and recall information from long-term memory.",
+                json!({
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Search query to find relevant memories"
+                        }
+                    },
+                    "required": ["query"]
+                }),
+            ));
+        }
+
         tools
     }
 
@@ -543,24 +693,7 @@ You have access to tools that you can use:
         }
 
         // Handle arguments that are wrapped in a string (common with some LLMs)
-        let args: HashMap<String, Value> = if arguments.is_string() {
-            // Try to parse as JSON string
-            let arg_str = arguments.as_str().unwrap_or("");
-            if arg_str.starts_with("{") {
-                serde_json::from_str(arg_str).unwrap_or_else(|_| HashMap::new())
-            } else {
-                HashMap::new()
-            }
-        } else if arguments.is_object() {
-            arguments
-                .as_object()
-                .unwrap()
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect()
-        } else {
-            HashMap::new()
-        };
+        let args: HashMap<String, Value> = util::parse_tool_arguments(arguments);
 
         match name {
             "read_file" => {
@@ -662,26 +795,179 @@ You have access to tools that you can use:
                     "Error: url parameter required".to_string()
                 }
             }
+            "spawn_subagent" => {
+                let task = args.get("task").and_then(|v| v.as_str());
+                let label = args.get("label").and_then(|v| v.as_str());
+
+                if let Some(task) = task {
+                    let label_opt = label.map(String::from);
+                    self.subagent_manager
+                        .spawn(
+                            task.to_string(),
+                            label_opt,
+                            util::channel::CLI.to_string(),
+                            util::target::DIRECT.to_string(),
+                            None,
+                        )
+                        .await
+                } else {
+                    "Error: task parameter required".to_string()
+                }
+            }
+            "list_subagents" => {
+                let count = self.subagent_manager.get_running_count().await;
+                format!("Currently running subagents: {}", count)
+            }
+            "cron" => {
+                if let Some(ref cron_service) = self.cron_service {
+                    let action = args.get("action").and_then(|v| v.as_str()).unwrap_or("");
+
+                    match action {
+                        "add" => {
+                            let message = args.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                            let every_seconds = args.get("every_seconds").and_then(|v| v.as_i64());
+                            let cron_expr = args.get("cron_expr").and_then(|v| v.as_str());
+
+                            if message.is_empty() {
+                                return "Error: message is required for add".to_string();
+                            }
+
+                            let (_schedule_kind, schedule) = if let Some(every) = every_seconds {
+                                let schedule = CronSchedule {
+                                    kind: ScheduleKind::Every,
+                                    at_ms: None,
+                                    every_ms: Some(every * 1000),
+                                    expr: None,
+                                    tz: None,
+                                };
+                                (ScheduleKind::Every, schedule)
+                            } else if let Some(expr) = cron_expr {
+                                let schedule = CronSchedule {
+                                    kind: ScheduleKind::Cron,
+                                    at_ms: None,
+                                    every_ms: None,
+                                    expr: Some(expr.to_string()),
+                                    tz: None,
+                                };
+                                (ScheduleKind::Cron, schedule)
+                            } else {
+                                return "Error: either every_seconds or cron_expr is required".to_string();
+                            };
+
+                            let payload = CronPayload {
+                                message: message.to_string(),
+                                channel: Some(util::channel::CLI.to_string()),
+                                to: Some(util::target::DIRECT.to_string()),
+                            };
+
+                            let job_id = cron_service.add_job("Reminder".to_string(), schedule, payload).await;
+                            format!("Cron job added with ID: {}", job_id)
+                        }
+                        "list" => {
+                            let jobs = cron_service.list_jobs().await;
+                            if jobs.is_empty() {
+                                "No cron jobs scheduled".to_string()
+                            } else {
+                                let mut output = String::from("Scheduled cron jobs:\n");
+                                for job in &jobs {
+                                    let schedule_str = match job.schedule.kind {
+                                        ScheduleKind::At => format!("at {}", job.schedule.at_ms.unwrap_or(0)),
+                                        ScheduleKind::Every => format!("every {}s", job.schedule.every_ms.unwrap_or(0) / 1000),
+                                        ScheduleKind::Cron => job.schedule.expr.clone().unwrap_or_default(),
+                                    };
+                                    output.push_str(&format!(
+                                        "- {}: {} [{}] ({})\n",
+                                        job.id,
+                                        job.payload.message,
+                                        schedule_str,
+                                        if job.enabled { "enabled" } else { "disabled" }
+                                    ));
+                                }
+                                output
+                            }
+                        }
+                        "remove" => {
+                            let job_id = args.get("job_id").and_then(|v| v.as_str()).unwrap_or("");
+                            if job_id.is_empty() {
+                                return "Error: job_id is required for remove".to_string();
+                            }
+                            if cron_service.remove_job(job_id).await {
+                                format!("Cron job {} removed", job_id)
+                            } else {
+                                format!("Cron job {} not found", job_id)
+                            }
+                        }
+                        _ => format!("Unknown action: {}. Use add, list, or remove.", action),
+                    }
+                } else {
+                    "Error: Cron service is not enabled".to_string()
+                }
+            }
+            "save_memory" => {
+                if let Some(ref memory_store) = self.memory_store {
+                    let content = args.get("content").and_then(|v| v.as_str()).unwrap_or("");
+                    if content.is_empty() {
+                        return "Error: content parameter required".to_string();
+                    }
+
+                    // Append to memory
+                    let current = match memory_store.read_long_term().await {
+                        Ok(c) => c,
+                        Err(_) => String::new(),
+                    };
+
+                    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M").to_string();
+                    let new_memory = if current.is_empty() {
+                        format!("- [{}] {}", timestamp, content)
+                    } else {
+                        format!("{}\n- [{}] {}", current, timestamp, content)
+                    };
+
+                    match memory_store.write_long_term(&new_memory).await {
+                        Ok(_) => "Memory saved successfully".to_string(),
+                        Err(e) => format!("Error saving memory: {}", e),
+                    }
+                } else {
+                    "Error: Memory service is not enabled".to_string()
+                }
+            }
+            "recall_memory" => {
+                if let Some(ref memory_store) = self.memory_store {
+                    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
+                    if query.is_empty() {
+                        return "Error: query parameter required".to_string();
+                    }
+
+                    // Read memory and do simple search
+                    match memory_store.read_long_term().await {
+                        Ok(memory) if !memory.is_empty() => {
+                            // Simple case-insensitive search
+                            let query_lower = query.to_lowercase();
+                            let lines: Vec<&str> = memory.lines()
+                                .filter(|line| line.to_lowercase().contains(&query_lower))
+                                .collect();
+
+                            if lines.is_empty() {
+                                format!("No memories found matching '{}'", query)
+                            } else {
+                                let results: Vec<&str> = lines.iter().take(5).copied().collect();
+                                format!("Relevant memories:\n{}", results.join("\n"))
+                            }
+                        }
+                        _ => format!("No memories found matching '{}'", query),
+                    }
+                } else {
+                    "Error: Memory service is not enabled".to_string()
+                }
+            }
             _ => format!("Error: Unknown tool '{}'", name),
         }
     }
 }
 
-/// Expand ~ to home directory
-fn expand_path(path: &str) -> String {
-    if path.starts_with("~") {
-        match std::env::var("HOME") {
-            Ok(home) => path.replace("~", &home),
-            Err(_) => path.to_string(),
-        }
-    } else {
-        path.to_string()
-    }
-}
-
 /// Validate that a path is within the allowed workspace
 fn validate_path(path: &str, workspace: &std::path::Path, restrict: bool) -> Result<String, String> {
-    let expanded = expand_path(path);
+    let expanded = util::expand_path(path);
     let path_buf = std::path::PathBuf::from(&expanded);
 
     if restrict {

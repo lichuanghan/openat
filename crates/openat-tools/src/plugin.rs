@@ -73,7 +73,7 @@ impl ToolRegistry {
     pub async fn register_plugin(&self, plugin: Box<dyn Plugin>) -> Result<(), String> {
         let meta = plugin.meta();
         let tools = plugin.tools();
-        let tool_count = tools.len();
+        let _tool_count = tools.len();
 
         // Register tools
         let mut tools_lock = self.tools.write().await;

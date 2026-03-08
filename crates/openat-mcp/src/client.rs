@@ -7,6 +7,7 @@ use anyhow::Result;
 use serde_json::Value;
 
 /// HTTP MCP Client that connects to HTTP endpoints
+#[derive(Clone)]
 pub struct HttpMcpClient {
     base_url: String,
     client: reqwest::Client,

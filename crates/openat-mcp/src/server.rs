@@ -5,7 +5,6 @@
 use crate::transport::Transport;
 use crate::types::*;
 use anyhow::Result;
-use async_trait::async_trait;
 use openat_tools::prelude::ToolRegistry;
 use serde_json::Value;
 use std::sync::Arc;
@@ -214,7 +213,7 @@ async fn handle_http_connection(
     mut stream: tokio::net::TcpStream,
     server: Arc<Mutex<McpServer>>,
 ) -> Result<()> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::io::AsyncReadExt;
 
     let mut buffer = vec![0u8; 65536];
     let bytes_read = stream.read(&mut buffer).await?;

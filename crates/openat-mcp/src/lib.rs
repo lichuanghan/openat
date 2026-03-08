@@ -41,9 +41,11 @@ pub mod client;
 pub mod server;
 pub mod transport;
 pub mod types;
+pub mod manager;
 
 // Re-export commonly used types
 pub use client::HttpMcpClient;
 pub use server::McpServer;
 pub use transport::{InMemoryTransport, StdioTransport};
 pub use types::*;
+pub use manager::McpManager;
