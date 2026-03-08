@@ -14,6 +14,7 @@ COPY crates/openat-runtime/Cargo.toml ./crates/openat-runtime/
 COPY crates/openat-types/Cargo.toml ./crates/openat-types/
 COPY crates/openat-tools/Cargo.toml ./crates/openat-tools/
 COPY crates/openat-providers/Cargo.toml ./crates/openat-providers/
+COPY crates/openat-mcp/Cargo.toml ./crates/openat-mcp/
 
 # Copy source code
 COPY crates/openat-common/src ./crates/openat-common/src
@@ -25,6 +26,7 @@ COPY crates/openat-runtime/src ./crates/openat-runtime/src
 COPY crates/openat-types/src ./crates/openat-types/src
 COPY crates/openat-tools/src ./crates/openat-tools/src
 COPY crates/openat-providers/src ./crates/openat-providers/src
+COPY crates/openat-mcp/src ./crates/openat-mcp/src
 
 # Build the release binary
 RUN cargo build --release -p openat-cli
